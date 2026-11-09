@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>ShadowStar Mobile VPN</title>
+  <meta name="theme-color" content="#090D16">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+  <div class="mobile-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div>
+        <div class="brand-title">SHADOWSTAR</div>
+        <div class="brand-sub">STEALTH REALITY VPN • MOBILE</div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="header-btn" onclick="toggleLanguage()" id="lang-btn" title="RU / EN">RU</button>
+        <button class="header-btn" onclick="openAddModal()" title="Добавить узел">➕</button>
+      </div>
+    </header>
+
+    <!-- DASHBOARD VIEW -->
+    <main id="view-dashboard">
+      <!-- Big Center Power Button -->
+      <section class="power-section">
+        <div class="power-btn-outer" id="power-btn" onclick="toggleConnect()">
+          <div class="power-btn-inner">
+            <span class="power-icon">⏻</span>
+          </div>
+        </div>
+        <div class="status-badge" id="status-badge">ОТКЛЮЧЕНО</div>
+        <div class="status-sub" id="status-sub">Нажмите для включения защиты</div>
+      </section>
+
+      <!-- Telemetry Speed Grid -->
+      <section class="telemetry-grid">
+        <div class="telem-card">
+          <div class="telem-label">Скачивание</div>
+          <div class="telem-val down" id="speed-down">↓ 0 KB/s</div>
+        </div>
+        <div class="telem-card">
+          <div class="telem-label">Отдача</div>
+          <div class="telem-val up" id="speed-up">↑ 0 KB/s</div>
+        </div>
+      </section>
+
+      <!-- Active Server Overview -->
+      <section class="glass-card" id="active-node-card">
+        <!-- Rendered dynamically via JavaScript -->
+      </section>
+
+      <!-- Security Info Card -->
+      <section class="glass-card" style="padding: 14px 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 18px;">🛡️</span>
+            <div>
+              <div style="font-size: 13px; font-weight: 700;">Режим анти-DPI обхода</div>
+              <div style="font-size: 11px; color: var(--text-dim);">X25519 ECDH • TCP Chunker • Fallback Shield</div>
+            </div>
+          </div>
+          <span style="font-size: 11px; background: rgba(16, 185, 129, 0.15); color: var(--accent-green); padding: 3px 8px; border-radius: 4px; font-weight: 700;">АКТИВЕН</span>
+        </div>
+      </section>
+    </main>
+
+    <!-- SERVERS VIEW -->
+    <main id="view-servers" style="display: none;">
+      <!-- Toolbar -->
+      <div class="servers-toolbar">
+        <button class="tool-btn" onclick="openAddModal()">➕ Новый узел</button>
+        <button class="tool-btn" onclick="openSubModal()">⚙️ URL подписки</button>
+        <button class="tool-btn" onclick="selectAutoBest()">⚡ Самый быстрый</button>
+      </div>
+
+      <!-- Header with Count -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding: 0 4px;">
+        <span style="font-size: 12px; font-weight: 700; color: var(--text-dim); text-transform: uppercase;">
+          Узлы (<span id="servers-count">0</span>)
+        </span>
+      </div>
+
+      <!-- Servers List Items -->
+      <div id="servers-list">
+        <!-- Rendered dynamically via JavaScript -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Bottom Navigation Bar -->
+  <nav class="bottom-nav">
+    <div class="nav-item active" data-tab="dashboard" onclick="switchTab('dashboard')">
+      <span class="nav-icon">⚡</span>
+      <span>Туннель</span>
+    </div>
+    <div class="nav-item" data-tab="servers" onclick="switchTab('servers')">
+      <span class="nav-icon">🌐</span>
+      <span>Серверы</span>
+    </div>
+  </nav>
+
+  <!-- Add / Edit Server Modal Bottom Sheet -->
+  <div class="modal-overlay" id="modal-server">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <div class="modal-title" id="modal-server-title">➕ Добавление узла ShadowStar</div>
+        <button class="modal-close" onclick="closeModal('modal-server')">✕</button>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Название узла</label>
+        <input type="text" class="input-field" id="input-node-name" placeholder="Например: VPS Нидерланды #1">
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Адрес и порт сервера (IP:Port)</label>
+        <input type="text" class="input-field" id="input-node-addr" placeholder="198.51.100.1:4433">
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Мастер-ключ безопасности</label>
+        <input type="text" class="input-field" id="input-node-key" placeholder="Секретный мастер-ключ узла">
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Маскировка SNI (Decoy Domain)</label>
+        <input type="text" class="input-field" id="input-node-sni" value="www.microsoft.com" placeholder="www.microsoft.com">
+      </div>
+
+      <button class="tool-btn" style="width: 100%; justify-content: center; margin-bottom: 12px;" onclick="pasteFromClipboard()">
+        📋 Вставить ссылку shadowstar://
+      </button>
+
+      <button class="btn-primary" onclick="saveServerModal()">✓ Сохранить узел</button>
+    </div>
+  </div>
+
+  <!-- Subscription URL Modal -->
+  <div class="modal-overlay" id="modal-sub">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <div class="modal-title">⚙️ URL подписки ShadowStar</div>
+        <button class="modal-close" onclick="closeModal('modal-sub')">✕</button>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Прямая ссылка на подписку</label>
+        <input type="text" class="input-field" id="input-sub-url" placeholder="https://example.com/api/subscription">
+      </div>
+
+      <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 16px;">
+        Поддерживаются форматы JSON, Base64 и списки ссылок вида shadowstar://
+      </div>
+
+      <button class="btn-primary" onclick="saveSubscription()">✓ Загрузить и обновить</button>
+    </div>
+  </div>
+
+  <!-- Floating Toast Notification -->
+  <div class="toast" id="toast">Уведомление</div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

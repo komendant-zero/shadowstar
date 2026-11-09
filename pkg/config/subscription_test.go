@@ -1,0 +1,96 @@
+package config
+
+import (
+	"encoding/base64"
+	"testing"
+
+	"github.com/shadowstar/shadowstar/pkg/client"
+)
+
+func TestParseSubscriptionJSON(t *testing.T) {
+	jsonContent := `[
+		{
+			"id": "node-1",
+			"name": "Amsterdam #1",
+			"server_addr": "1.2.3.4:443",
+			"master_key": "key1",
+			"sni": "www.microsoft.com"
+		},
+		{
+			"id": "node-2",
+			"name": "Frankfurt Ultra",
+			"server_addr": "5.6.7.8:443",
+			"master_key": "key2",
+			"sni": "dl.google.com"
+		}
+	]`
+
+	profiles, err := ParseSubscriptionContent([]byte(jsonContent))
+	if err != nil {
+		t.Fatalf("ParseSubscriptionContent failed: %v", err)
+	}
+
+	if len(profiles) != 2 {
+		t.Fatalf("expected 2 profiles, got %d", len(profiles))
+	}
+
+	if profiles[0].Country != "NL" {
+		t.Errorf("expected country NL, got %s", profiles[0].Country)
+	}
+	if profiles[1].Country != "DE" {
+		t.Errorf("expected country DE, got %s", profiles[1].Country)
+	}
+}
+
+func TestParseSubscriptionBase64(t *testing.T) {
+	p1 := client.ServerProfile{
+		ID:         "node-nl",
+		Name:       "Netherlands Fast",
+		ServerAddr: "1.1.1.1:443",
+		MasterKey:  "secret-1",
+		SNI:        "www.microsoft.com",
+	}
+	p2 := client.ServerProfile{
+		ID:         "node-us",
+		Name:       "USA East",
+		ServerAddr: "2.2.2.2:443",
+		MasterKey:  "secret-2",
+		SNI:        "www.microsoft.com",
+	}
+
+	uri1 := EncodeProfileToURI(p1)
+	uri2 := EncodeProfileToURI(p2)
+
+	combined := uri1 + "\n" + uri2
+	b64 := base64.StdEncoding.EncodeToString([]byte(combined))
+
+	profiles, err := ParseSubscriptionContent([]byte(b64))
+	if err != nil {
+		t.Fatalf("Failed to parse base64 subscription: %v", err)
+	}
+
+	if len(profiles) != 2 {
+		t.Fatalf("Expected 2 profiles, got %d", len(profiles))
+	}
+
+	if profiles[0].Country != "NL" {
+		t.Errorf("Expected NL, got %s", profiles[0].Country)
+	}
+	if profiles[1].Country != "US" {
+		t.Errorf("Expected US, got %s", profiles[1].Country)
+	}
+}
+
+func TestDecodeURIFallbackNoUser(t *testing.T) {
+	raw := "shadowstar://1.2.3.4:443?sni=www.microsoft.com#TestServer"
+	prof, err := DecodeURIToProfile(raw)
+	if err != nil {
+		t.Fatalf("DecodeURIToProfile failed on raw URL without user: %v", err)
+	}
+	if prof.ServerAddr != "1.2.3.4:443" {
+		t.Errorf("expected 1.2.3.4:443, got %s", prof.ServerAddr)
+	}
+	if prof.Name != "TestServer" {
+		t.Errorf("expected TestServer, got %s", prof.Name)
+	}
+}

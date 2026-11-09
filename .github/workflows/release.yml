@@ -1,0 +1,119 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Cross-Platform Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Windows Desktop Client
+          - os: windows
+            arch: amd64
+            pkg: ./cmd/shadowstar
+            output: shadowstar.exe
+            archive: shadowstar-windows-amd64.zip
+          # Linux CLI Client / Server
+          - os: linux
+            arch: amd64
+            pkg: ./cmd/shadowstar
+            output: shadowstar
+            archive: shadowstar-linux-amd64.tar.gz
+          - os: linux
+            arch: arm64
+            pkg: ./cmd/shadowstar
+            output: shadowstar
+            archive: shadowstar-linux-arm64.tar.gz
+          # ShadowStar Server
+          - os: linux
+            arch: amd64
+            pkg: ./cmd/shadowstar-server
+            output: shadowstar-server
+            archive: shadowstar-server-linux-amd64.tar.gz
+          - os: linux
+            arch: arm64
+            pkg: ./cmd/shadowstar-server
+            output: shadowstar-server
+            archive: shadowstar-server-linux-arm64.tar.gz
+          # Mobile Gateway (Android ARM64 & Windows)
+          - os: android
+            arch: arm64
+            pkg: ./cmd/shadowstar-mobile
+            output: shadowstar-mobile-android-arm64
+            archive: shadowstar-mobile-android-arm64.tar.gz
+          - os: windows
+            arch: amd64
+            pkg: ./cmd/shadowstar-mobile
+            output: shadowstar-mobile.exe
+            archive: shadowstar-mobile-windows-amd64.zip
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Build Binary (${{ matrix.os }}/${{ matrix.arch }})
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags="-s -w" -o dist/${{ matrix.output }} ${{ matrix.pkg }}
+
+      - name: Package Windows Artifacts (.zip)
+        if: matrix.os == 'windows'
+        run: |
+          cd dist
+          cp ../shadowstar-client.json ./ 2>/dev/null || true
+          cp ../shadowstar-server.example.json ./ 2>/dev/null || true
+          zip -9 ../${{ matrix.archive }} ${{ matrix.output }} *.json
+
+      - name: Package Unix / Android Artifacts (.tar.gz)
+        if: matrix.os != 'windows'
+        run: |
+          cd dist
+          cp ../shadowstar-client.json ./ 2>/dev/null || true
+          cp ../shadowstar-server.example.json ./ 2>/dev/null || true
+          tar -czvf ../${{ matrix.archive }} ${{ matrix.output }} *.json
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Download Built Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: release-assets
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          token: ${{ secrets.GITHUB_TOKEN }}

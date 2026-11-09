@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">ShadowStar VPN</string>
+    <string name="vpn_connected">Анти-DPI туннель активен</string>
+    <string name="vpn_disconnected">Туннель отключен</string>
+    <string name="action_connect">Подключить</string>
+    <string name="action_disconnect">Отключить</string>
+    <string name="node_name">Имя узла</string>
+    <string name="node_addr">Адрес сервера</string>
+</resources>

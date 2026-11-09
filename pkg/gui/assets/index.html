@@ -1,0 +1,2465 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShadowStar • Anti-DPI Next-Gen Stealth Engine</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-space: #07090e;
+      --bg-surface: rgba(14, 20, 34, 0.76);
+      --bg-surface-elevated: rgba(20, 28, 48, 0.85);
+      --bg-surface-hover: rgba(28, 38, 64, 0.9);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(0, 242, 254, 0.35);
+      --border-focus: #00f2fe;
+
+      --neon-cyan: #00f2fe;
+      --neon-cyan-glow: rgba(0, 242, 254, 0.35);
+      --neon-purple: #a855f7;
+      --neon-purple-glow: rgba(168, 85, 247, 0.35);
+      --neon-emerald: #10b981;
+      --neon-emerald-glow: rgba(16, 185, 129, 0.35);
+      --neon-amber: #f59e0b;
+      --neon-amber-glow: rgba(245, 158, 11, 0.35);
+      --neon-rose: #f43f5e;
+      --neon-rose-glow: rgba(244, 63, 94, 0.35);
+
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+
+      --radius-xl: 20px;
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-sm: 8px;
+
+      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-space);
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(20, 32, 60, 0.7) 0%, transparent 70%),
+        radial-gradient(circle at 85% 90%, rgba(168, 85, 247, 0.08) 0%, transparent 60%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Ambient background glows */
+    .ambient-glow {
+      position: fixed;
+      top: -15%;
+      left: 20%;
+      width: 55vw;
+      height: 45vh;
+      background: radial-gradient(circle, rgba(0, 242, 254, 0.08), transparent 70%);
+      filter: blur(100px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .ambient-glow-2 {
+      position: fixed;
+      bottom: -15%;
+      right: 15%;
+      width: 50vw;
+      height: 45vh;
+      background: radial-gradient(circle, rgba(168, 85, 247, 0.08), transparent 70%);
+      filter: blur(110px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .app-container {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      max-width: 1240px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.15);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.16);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 242, 254, 0.4);
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 32px;
+      border-bottom: 1px solid var(--border-subtle);
+      backdrop-filter: blur(24px);
+      background: rgba(7, 9, 14, 0.72);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #00f2fe 0%, #7928ca 100%);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 20px var(--neon-cyan-glow);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .logo-icon svg {
+      width: 22px;
+      height: 22px;
+      fill: #ffffff;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+    }
+
+    .brand-meta {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brand-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-title {
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      background: linear-gradient(90deg, #ffffff 40%, var(--neon-cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-version {
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: rgba(0, 242, 254, 0.12);
+      color: var(--neon-cyan);
+      font-weight: 700;
+      border: 1px solid rgba(0, 242, 254, 0.25);
+      letter-spacing: 0.5px;
+      font-family: var(--font-mono);
+    }
+
+    .brand-subtitle {
+      font-size: 11.5px;
+      color: var(--text-dim);
+      letter-spacing: 0.2px;
+    }
+
+    /* Header Nav Tabs */
+    .header-nav {
+      display: flex;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 4px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-subtle);
+      gap: 4px;
+    }
+
+    .nav-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 8px 16px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .nav-btn:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: #fff;
+    }
+
+    .nav-btn.active {
+      background: rgba(0, 242, 254, 0.12);
+      border-color: rgba(0, 242, 254, 0.3);
+      color: var(--neon-cyan);
+      box-shadow: 0 0 16px rgba(0, 242, 254, 0.15);
+    }
+
+    .nav-count-badge {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+    }
+
+    .nav-btn.active .nav-count-badge {
+      background: rgba(0, 242, 254, 0.25);
+      color: #fff;
+    }
+
+    /* Header Right Controls */
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header-status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 30px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    .header-status-pill.connected {
+      background: rgba(16, 185, 129, 0.12);
+      border-color: rgba(16, 185, 129, 0.35);
+      color: var(--neon-emerald);
+      box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+    }
+
+    .header-status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+    }
+
+    .header-status-pill.connected .header-status-dot {
+      background: var(--neon-emerald);
+      box-shadow: 0 0 8px var(--neon-emerald);
+      animation: pulseAnim 1.8s infinite alternate;
+    }
+
+    .btn-quit {
+      width: 34px;
+      height: 34px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-quit:hover {
+      background: rgba(244, 63, 94, 0.15);
+      border-color: var(--neon-rose);
+      color: var(--neon-rose);
+    }
+
+    /* Tab Content Containers */
+    .tab-content {
+      display: none;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .tab-content.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Main Dashboard Layout */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 24px;
+      padding: 24px 32px;
+      overflow-y: auto;
+    }
+
+    .left-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .right-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Glass Cards */
+    .glass-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xl);
+      padding: 22px;
+      backdrop-filter: blur(24px);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 36px rgba(0, 0, 0, 0.45);
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
+    }
+
+    .glass-card:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    /* Hero Connection Card */
+    .connect-hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 36px 20px 30px;
+      text-align: center;
+      position: relative;
+    }
+
+    .power-btn-wrapper {
+      position: relative;
+      width: 190px;
+      height: 190px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 22px;
+    }
+
+    .pulse-ring-outer {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 2px dashed rgba(255, 255, 255, 0.12);
+      animation: rotateRing 30s linear infinite;
+      transition: all 0.5s ease;
+    }
+
+    .pulse-ring-inner {
+      position: absolute;
+      width: 156px;
+      height: 156px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: all 0.5s ease;
+    }
+
+    .pulse-glow-aura {
+      position: absolute;
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      background: transparent;
+      transition: all 0.5s ease;
+      z-index: 1;
+    }
+
+    .power-btn {
+      width: 136px;
+      height: 136px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #182236 0%, #0d1424 100%);
+      border: 2px solid rgba(255, 255, 255, 0.14);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
+      transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 
+        0 14px 34px rgba(0, 0, 0, 0.65), 
+        inset 0 2px 4px rgba(255, 255, 255, 0.15),
+        inset 0 -2px 6px rgba(0, 0, 0, 0.5);
+    }
+
+    .power-btn:hover {
+      transform: scale(1.05);
+      border-color: rgba(0, 242, 254, 0.5);
+      box-shadow: 
+        0 18px 40px rgba(0, 0, 0, 0.75), 
+        0 0 24px rgba(0, 242, 254, 0.25),
+        inset 0 2px 4px rgba(255, 255, 255, 0.2);
+    }
+
+    .power-btn:active {
+      transform: scale(0.97);
+    }
+
+    .power-icon {
+      width: 50px;
+      height: 50px;
+      stroke: #fff;
+      stroke-width: 2.2;
+      fill: none;
+      transition: all 0.35s ease;
+      filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.2));
+    }
+
+    /* Connected State */
+    .connect-hero.connected .pulse-ring-outer {
+      border-color: var(--neon-emerald);
+      border-style: solid;
+      animation: rotateRing 10s linear infinite;
+      box-shadow: 0 0 35px var(--neon-emerald-glow);
+    }
+
+    .connect-hero.connected .pulse-ring-inner {
+      border-color: rgba(16, 185, 129, 0.4);
+      border-width: 2px;
+    }
+
+    .connect-hero.connected .pulse-glow-aura {
+      background: radial-gradient(circle, var(--neon-emerald-glow) 0%, transparent 70%);
+      animation: breathe 3s ease-in-out infinite alternate;
+    }
+
+    .connect-hero.connected .power-btn {
+      background: linear-gradient(145deg, #093325 0%, #051a13 100%);
+      border-color: var(--neon-emerald);
+      box-shadow: 
+        0 0 40px var(--neon-emerald-glow), 
+        inset 0 0 20px rgba(16, 185, 129, 0.35);
+    }
+
+    .connect-hero.connected .power-icon {
+      stroke: var(--neon-emerald);
+      filter: drop-shadow(0 0 14px var(--neon-emerald));
+    }
+
+    /* Connecting State */
+    .connect-hero.connecting .pulse-ring-outer {
+      border-color: var(--neon-amber);
+      border-style: dashed;
+      animation: rotateRing 2s linear infinite;
+    }
+
+    .connect-hero.connecting .power-btn {
+      border-color: var(--neon-amber);
+    }
+
+    .connect-hero.connecting .power-icon {
+      stroke: var(--neon-amber);
+      animation: pulseAnim 1s ease-in-out infinite alternate;
+    }
+
+    @keyframes rotateRing {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes breathe {
+      from { transform: scale(0.95); opacity: 0.6; }
+      to { transform: scale(1.18); opacity: 1; }
+    }
+
+    @keyframes pulseAnim {
+      from { opacity: 0.5; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1.05); }
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 22px;
+      border-radius: 30px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      font-size: 13.5px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      margin-bottom: 12px;
+      transition: all 0.3s;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: all 0.3s;
+    }
+
+    .connect-hero.connected .status-badge {
+      background: rgba(16, 185, 129, 0.12);
+      border-color: var(--neon-emerald);
+      color: var(--neon-emerald);
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.25);
+    }
+
+    .connect-hero.connected .status-dot {
+      background: var(--neon-emerald);
+      box-shadow: 0 0 10px var(--neon-emerald);
+    }
+
+    .connect-hero.connecting .status-badge {
+      background: rgba(245, 158, 11, 0.12);
+      border-color: var(--neon-amber);
+      color: var(--neon-amber);
+    }
+
+    .connect-hero.connecting .status-dot {
+      background: var(--neon-amber);
+      box-shadow: 0 0 10px var(--neon-amber);
+    }
+
+    .server-quick-info {
+      color: var(--text-muted);
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .server-quick-info strong {
+      color: #fff;
+    }
+
+    .session-timer {
+      font-family: var(--font-mono);
+      color: var(--neon-cyan);
+      font-weight: 700;
+    }
+
+    /* Telemetry Grid */
+    .telemetry-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+
+    .telemetry-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      backdrop-filter: blur(20px);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      transition: all 0.25s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .telemetry-card:hover {
+      border-color: rgba(255, 255, 255, 0.18);
+      transform: translateY(-2px);
+    }
+
+    .telemetry-label {
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .telemetry-value {
+      font-family: var(--font-mono);
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.3px;
+    }
+
+    .telemetry-sub {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 4px;
+      font-family: var(--font-mono);
+    }
+
+    .val-down { color: var(--neon-cyan); }
+    .val-up { color: var(--neon-purple); }
+    .val-ping { color: var(--neon-emerald); }
+
+    /* Graph Card */
+    .graph-card {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 220px;
+    }
+
+    .graph-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .graph-title-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .graph-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .graph-legend {
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .legend-bullet {
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+    }
+
+    .bullet-down { background: var(--neon-cyan); box-shadow: 0 0 6px var(--neon-cyan); }
+    .bullet-up { background: var(--neon-purple); box-shadow: 0 0 6px var(--neon-purple); }
+
+    canvas#speedCanvas {
+      width: 100%;
+      height: 145px;
+      display: block;
+    }
+
+    /* Right Panel Elements */
+    .section-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Switch Component */
+    .toggle-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .toggle-info h4 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 2px;
+    }
+
+    .toggle-info p {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 48px;
+      height: 26px;
+      flex-shrink: 0;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(255, 255, 255, 0.12);
+      transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 34px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: #fff;
+      transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+
+    input:checked + .slider {
+      background-color: var(--neon-cyan);
+      box-shadow: 0 0 16px var(--neon-cyan-glow);
+      border-color: var(--neon-cyan);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(22px);
+      background-color: #07090e;
+    }
+
+    /* Shield Badge */
+    .shield-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      background: rgba(0, 242, 254, 0.05);
+      border: 1px solid rgba(0, 242, 254, 0.18);
+      color: #cbd5e1;
+      font-size: 12px;
+      line-height: 1.4;
+      margin-top: 14px;
+    }
+
+    .shield-badge svg {
+      flex-shrink: 0;
+      color: var(--neon-cyan);
+    }
+
+    /* Amnezia Coexist Banner */
+    .coexist-banner {
+      display: none;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 11px 14px;
+      border-radius: var(--radius-md);
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      color: #fed7aa;
+      font-size: 12px;
+      line-height: 1.4;
+      margin-top: 12px;
+    }
+
+    .coexist-banner.active {
+      display: flex;
+    }
+
+    /* Ports Info Card */
+    .proxy-ports-box {
+      margin-top: 14px;
+      padding: 12px 14px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .port-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12.5px;
+    }
+
+    .port-name {
+      color: var(--text-muted);
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .port-val {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--neon-cyan);
+      cursor: pointer;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(0, 242, 254, 0.08);
+      border: 1px solid rgba(0, 242, 254, 0.15);
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .port-val:hover {
+      background: rgba(0, 242, 254, 0.2);
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 10px var(--neon-cyan-glow);
+    }
+
+    /* Quick Server Card */
+    .quick-server-box {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .quick-server-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .quick-server-name {
+      font-size: 14.5px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .quick-server-addr {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .quick-server-tags {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .sni-badge {
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #cbd5e1;
+      font-family: var(--font-mono);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    /* Tab 2: Servers Management View */
+    .servers-view-container {
+      padding: 28px 32px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .toolbar-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .search-input-wrapper {
+      position: relative;
+      flex: 1;
+      max-width: 380px;
+    }
+
+    .search-input-wrapper svg {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-dim);
+    }
+
+    .search-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 9px 14px 9px 40px;
+      color: #fff;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 12px var(--neon-cyan-glow);
+    }
+
+    .servers-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: calc(100vh - 230px);
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .server-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      background: rgba(255, 255, 255, 0.025);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .server-card:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.16);
+      transform: translateX(2px);
+    }
+
+    .server-card.active {
+      background: rgba(0, 242, 254, 0.08);
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 20px rgba(0, 242, 254, 0.12);
+    }
+
+    .server-main-info {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .server-radio {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid var(--text-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+
+    .server-card.active .server-radio {
+      border-color: var(--neon-cyan);
+    }
+
+    .server-radio-inner {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: transparent;
+      transition: all 0.2s;
+    }
+
+    .server-card.active .server-radio-inner {
+      background: var(--neon-cyan);
+      box-shadow: 0 0 8px var(--neon-cyan);
+    }
+
+    .server-details {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .server-name {
+      font-weight: 700;
+      color: #fff;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .server-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .server-actions-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ping-pill {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-muted);
+      border: 1px solid var(--border-subtle);
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .ping-pill:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .ping-pill.fast { color: var(--neon-emerald); border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.08); }
+    .ping-pill.med { color: var(--neon-amber); border-color: rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.08); }
+    .ping-pill.slow { color: var(--neon-rose); border-color: rgba(244, 63, 94, 0.35); background: rgba(244, 63, 94, 0.08); }
+
+    .action-icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .action-icon-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .action-icon-btn.danger:hover {
+      background: rgba(244, 63, 94, 0.2);
+      color: var(--neon-rose);
+      border-color: var(--neon-rose);
+    }
+
+    /* Buttons */
+    .btn-primary {
+      padding: 9px 18px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--neon-cyan) 0%, #00b4d8 100%);
+      border: none;
+      color: #07090e;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+      box-shadow: 0 4px 14px rgba(0, 242, 254, 0.25);
+    }
+
+    .btn-primary:hover {
+      box-shadow: 0 0 20px var(--neon-cyan-glow);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      padding: 9px 16px;
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      color: #fff;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    /* Tab 3: Integrations & App Guides */
+    .guide-view {
+      padding: 28px 32px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .guide-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    .guide-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xl);
+      padding: 24px;
+      backdrop-filter: blur(24px);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .guide-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    .guide-icon-box {
+      width: 42px;
+      height: 42px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 242, 254, 0.1);
+      color: var(--neon-cyan);
+      border: 1px solid rgba(0, 242, 254, 0.2);
+      flex-shrink: 0;
+    }
+
+    .guide-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .guide-card p {
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .code-box {
+      background: #040609;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      color: #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 14px 0 6px;
+      word-break: break-all;
+    }
+
+    .btn-copy {
+      padding: 5px 12px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border-subtle);
+      color: #fff;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      flex-shrink: 0;
+      margin-left: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-copy:hover {
+      background: var(--neon-cyan);
+      color: #07090e;
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 10px var(--neon-cyan-glow);
+    }
+
+    /* Tab 4: Logs View */
+    .logs-view {
+      padding: 28px 32px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .terminal-container {
+      flex: 1;
+      background: #030508;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 16px 20px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #cbd5e1;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+
+    .log-line {
+      margin-bottom: 5px;
+      display: flex;
+      gap: 10px;
+      word-break: break-word;
+    }
+
+    .log-tag {
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .log-tag.auth { color: var(--neon-emerald); }
+    .log-tag.warn { color: var(--neon-amber); }
+    .log-tag.error { color: var(--neon-rose); }
+    .log-tag.info { color: var(--neon-cyan); }
+
+    /* Modals */
+    .modal-backdrop {
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(10px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .modal-backdrop.active {
+      display: flex;
+    }
+
+    .modal-card {
+      background: #0e1526;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xl);
+      width: 500px;
+      max-width: 92vw;
+      padding: 28px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.9);
+      animation: modalSlide .25s ease-out;
+    }
+
+    @keyframes modalSlide {
+      from { transform: scale(0.95) translateY(10px); opacity: 0; }
+      to { transform: scale(1) translateY(0); opacity: 1; }
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    .form-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      transition: border-color 0.2s;
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 12px var(--neon-cyan-glow);
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    /* Floating Toast Notifications */
+    .toast-container {
+      position: fixed;
+      top: 24px;
+      right: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 9999;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: rgba(14, 21, 38, 0.95);
+      border: 1px solid var(--border-subtle);
+      border-left: 4px solid var(--neon-cyan);
+      color: #fff;
+      padding: 12px 18px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(16px);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: toastIn .3s ease-out forwards;
+      pointer-events: auto;
+    }
+
+    .toast.success { border-left-color: var(--neon-emerald); }
+    .toast.error { border-left-color: var(--neon-rose); }
+    .toast.warn { border-left-color: var(--neon-amber); }
+
+    @keyframes toastIn {
+      from { transform: translateX(50px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient-glow"></div>
+  <div class="ambient-glow-2"></div>
+  <div class="toast-container" id="toastBox"></div>
+
+  <div class="app-container">
+    <!-- Top Header Bar -->
+    <header>
+      <div class="logo-container" onclick="switchTab('main')">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </div>
+        <div class="brand-meta">
+          <div class="brand-title-row">
+            <span class="brand-title">SHADOWSTAR</span>
+            <span class="brand-version" id="brandVersion">v1.2</span>
+          </div>
+          <span class="brand-subtitle">Anti-DPI Next-Gen Stealth Engine</span>
+        </div>
+      </div>
+
+      <nav class="header-nav">
+        <button class="nav-btn active" id="tabMainBtn" onclick="switchTab('main')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Консоль
+        </button>
+        <button class="nav-btn" id="tabServersBtn" onclick="switchTab('servers')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          Серверы
+          <span class="nav-count-badge" id="serversCountBadge">1</span>
+        </button>
+        <button class="nav-btn" id="tabAppsBtn" onclick="switchTab('apps')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Интеграции
+        </button>
+        <button class="nav-btn" id="tabLogsBtn" onclick="switchTab('logs')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          Журнал
+        </button>
+      </nav>
+
+      <div class="header-right">
+        <div class="header-status-pill" id="headerStatusPill">
+          <span class="header-status-dot"></span>
+          <span id="headerStatusText">ОТКЛЮЧЕНО</span>
+        </div>
+        <button class="btn-quit" onclick="handleQuitApp()" title="Выключить прокси и закрыть клиент">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- TAB 1: Main Dashboard -->
+    <div id="viewMain" class="tab-content active">
+      <main>
+        <!-- Left Panel: Hero Connect & Telemetry & Graph -->
+        <div class="left-panel">
+          <!-- Power Hero Card -->
+          <div class="glass-card connect-hero" id="heroCard">
+            <div class="power-btn-wrapper">
+              <div class="pulse-ring-outer"></div>
+              <div class="pulse-ring-inner"></div>
+              <div class="pulse-glow-aura"></div>
+              <button class="power-btn" id="connectBtn" onclick="toggleConnect()" title="Нажмите, чтобы подключить или отключить защиту">
+                <svg class="power-icon" viewBox="0 0 24 24">
+                  <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                  <line x1="12" y1="2" x2="12" y2="12"></line>
+                </svg>
+              </button>
+            </div>
+
+            <div class="status-badge" id="statusBadge">
+              <span class="status-dot"></span>
+              <span id="statusText">ОТКЛЮЧЕНО</span>
+            </div>
+
+            <div class="server-quick-info">
+              <span>Активный узел: <strong id="activeServerName">VPS Server</strong></span>
+              <span>•</span>
+              <span>Сессия: <span class="session-timer" id="sessionTimer">00:00:00</span></span>
+              <span>•</span>
+              <span class="sni-badge" id="quickDecoyBadge">SNI: www.microsoft.com</span>
+            </div>
+          </div>
+
+          <!-- Telemetry Stats Grid -->
+          <div class="telemetry-grid">
+            <div class="telemetry-card">
+              <div class="telemetry-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--neon-cyan)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                Загрузка
+              </div>
+              <div class="telemetry-value val-down" id="speedDown">0.0 KB/s</div>
+              <div class="telemetry-sub" id="totalDown">Всего: 0 MB</div>
+            </div>
+
+            <div class="telemetry-card">
+              <div class="telemetry-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--neon-purple)" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+                Отдача
+              </div>
+              <div class="telemetry-value val-up" id="speedUp">0.0 KB/s</div>
+              <div class="telemetry-sub" id="totalUp">Всего: 0 MB</div>
+            </div>
+
+            <div class="telemetry-card" style="cursor: pointer;" onclick="pingActiveServer()" title="Нажмите, чтобы проверить пинг">
+              <div class="telemetry-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--neon-emerald)" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                Пинг
+              </div>
+              <div class="telemetry-value val-ping" id="valPing">-- ms</div>
+              <div class="telemetry-sub" id="pingStatusSub">Нажмите для теста</div>
+            </div>
+
+            <div class="telemetry-card">
+              <div class="telemetry-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--neon-amber)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Соединения
+              </div>
+              <div class="telemetry-value" id="activeConns">0</div>
+              <div class="telemetry-sub">SMUX потоков</div>
+            </div>
+          </div>
+
+          <!-- Real-Time Traffic Chart -->
+          <div class="glass-card graph-card">
+            <div class="graph-header">
+              <div class="graph-title-group">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--neon-cyan)" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                <span class="graph-title">Трафик в реальном времени</span>
+              </div>
+              <div class="graph-legend">
+                <div class="legend-item"><span class="legend-bullet bullet-down"></span> Скачивание</div>
+                <div class="legend-item"><span class="legend-bullet bullet-up"></span> Загрузка</div>
+              </div>
+            </div>
+            <canvas id="speedCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Right Panel: System Proxy & Ports & Active Node -->
+        <div class="right-panel">
+          <!-- System Proxy Card -->
+          <div class="glass-card">
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <h4>Системный прокси Windows</h4>
+                <p>Маршрутизирует браузеры (WinINet)</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="sysproxyToggle" onchange="toggleSysProxy(this.checked)">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <!-- AmneziaWG coexistence banner -->
+            <div class="coexist-banner" id="awgBanner">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span>AmneziaWG активен: системный прокси WinINet оставлен без изменений во избежание сетевых конфликтов.</span>
+            </div>
+
+            <div class="shield-badge">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span>DPI Shield: TLS 1.3 Reality + Chunker (Обход ТСПУ)</span>
+            </div>
+
+            <div class="proxy-ports-box">
+              <div class="port-item">
+                <span class="port-name">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                  SOCKS5 (TCP / UDP)
+                </span>
+                <span class="port-val" onclick="copyText('127.0.0.1:10808')" title="Нажмите, чтобы скопировать">
+                  127.0.0.1:10808
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </span>
+              </div>
+              <div class="port-item">
+                <span class="port-name">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                  HTTP / HTTPS
+                </span>
+                <span class="port-val" onclick="copyText('127.0.0.1:10809')" title="Нажмите, чтобы скопировать">
+                  127.0.0.1:10809
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Server Quick Card -->
+          <div class="glass-card" style="flex: 1;">
+            <div class="section-title-row">
+              <span class="section-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--neon-cyan)" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                Активный узел
+              </span>
+              <button class="btn-secondary" style="padding: 4px 10px; font-size: 11.5px;" onclick="switchTab('servers')">Все узлы →</button>
+            </div>
+            
+            <div id="quickServerCard">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- TAB 2: Servers Management -->
+    <div id="viewServers" class="tab-content servers-view-container">
+      <div class="glass-card" style="flex: 1; display: flex; flex-direction: column;">
+        <div class="toolbar-row">
+          <div>
+            <h2 style="font-size: 18px; color: #fff;">Узлы ShadowStar</h2>
+            <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 2px;">Защищённые серверы с TLS 1.3 Reality маскировкой</p>
+          </div>
+          
+          <div class="search-input-wrapper">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="serverSearchInput" class="search-input" placeholder="Поиск узла по имени или IP..." oninput="filterServers(this.value)">
+          </div>
+
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-secondary" onclick="pingAllServers()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              Тест всех
+            </button>
+            <button class="btn-secondary" onclick="openImportModal()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              Импорт ссылки
+            </button>
+            <button class="btn-primary" onclick="openAddServerModal()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Добавить узел
+            </button>
+          </div>
+        </div>
+
+        <div class="servers-list" id="fullServersList">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: Integrations & App Guides -->
+    <div id="viewApps" class="tab-content guide-view">
+      <div class="guide-grid">
+        <!-- Antigravity / IDE -->
+        <div class="guide-card">
+          <div>
+            <div class="guide-header">
+              <div class="guide-icon-box">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              </div>
+              <div>
+                <div class="guide-title">Google Antigravity & VS Code</div>
+                <span style="font-size:12px; color:var(--neon-emerald); font-weight:600;">✓ Прямая поддержка</span>
+              </div>
+            </div>
+            <p>
+              Antigravity автоматически использует ShadowStar, когда включён <strong>Системный прокси Windows</strong>. Также вы можете зафиксировать прокси в конфигурации <code style="color:var(--neon-cyan)">settings.json</code>:
+            </p>
+          </div>
+          <div class="code-box">
+            <span>"http.proxy": "http://127.0.0.1:10809"</span>
+            <button class="btn-copy" onclick="copyText('\"http.proxy\": \"http://127.0.0.1:10809\"')">Копировать</button>
+          </div>
+        </div>
+
+        <!-- Telegram -->
+        <div class="guide-card">
+          <div>
+            <div class="guide-header">
+              <div class="guide-icon-box" style="color:var(--neon-purple); background:rgba(168,85,247,0.1); border-color:rgba(168,85,247,0.25);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </div>
+              <div>
+                <div class="guide-title">Telegram Desktop</div>
+                <span style="font-size:12px; color:var(--neon-purple); font-weight:600;">1-клик подключение</span>
+              </div>
+            </div>
+            <p>
+              Подключите Telegram через локальный SOCKS5 с поддержкой голосовых UDP-звонков и мгновенной загрузки медиа:
+            </p>
+          </div>
+          <div class="code-box">
+            <span>tg://socks?server=127.0.0.1&port=10808</span>
+            <button class="btn-copy" onclick="window.open('tg://socks?server=127.0.0.1&port=10808')">Открыть в TG</button>
+          </div>
+        </div>
+
+        <!-- Terminal & Git -->
+        <div class="guide-card">
+          <div>
+            <div class="guide-header">
+              <div class="guide-icon-box" style="color:var(--neon-emerald); background:rgba(16,185,129,0.1); border-color:rgba(16,185,129,0.25);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              </div>
+              <div>
+                <div class="guide-title">PowerShell & Git CLI</div>
+                <span style="font-size:12px; color:var(--text-muted);">Для npm, pip, git clone</span>
+              </div>
+            </div>
+            <p>
+              Активировать прокси в текущей сессии PowerShell для быстрой сборки и загрузки репозиториев:
+            </p>
+          </div>
+          <div class="code-box">
+            <span>$env:ALL_PROXY="socks5://127.0.0.1:10808"</span>
+            <button class="btn-copy" onclick="copyText('$env:ALL_PROXY=\"socks5://127.0.0.1:10808\"')">Копировать</button>
+          </div>
+        </div>
+
+        <!-- Browsers -->
+        <div class="guide-card">
+          <div>
+            <div class="guide-header">
+              <div class="guide-icon-box" style="color:var(--neon-amber); background:rgba(245,158,11,0.1); border-color:rgba(245,158,11,0.25);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              </div>
+              <div>
+                <div class="guide-title">Браузеры (Chrome / Edge / Firefox)</div>
+                <span style="font-size:12px; color:var(--neon-amber); font-weight:600;">YouTube 4K, X, AI сервисы</span>
+              </div>
+            </div>
+            <p>
+              Просто включите <strong>«Системный прокси Windows»</strong> на вкладке Консоли. Все сайты откроются без ограничений, замедлений и рекламы.
+            </p>
+          </div>
+          <div class="code-box">
+            <span>WinINet HTTP: 127.0.0.1:10809</span>
+            <button class="btn-copy" onclick="copyText('127.0.0.1:10809')">Копировать</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: Live Protocol Logs -->
+    <div id="viewLogs" class="tab-content logs-view">
+      <div class="glass-card" style="height: calc(100vh - 128px); display: flex; flex-direction: column;">
+        <div class="section-title-row" style="margin-bottom: 14px;">
+          <div>
+            <h2 style="font-size: 16px; color: #fff;">Журнал событий протокола</h2>
+            <p style="font-size: 12px; color: var(--text-muted);">Логирование сессий TLS 1.3 Reality, handshake и маршрутизации</p>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-secondary" onclick="copyAllLogs()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Копировать
+            </button>
+            <button class="btn-secondary" onclick="clearLogsUI()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              Очистить
+            </button>
+          </div>
+        </div>
+        <div class="terminal-container" id="terminalLogs">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add / Edit Server Modal -->
+  <div class="modal-backdrop" id="serverModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modalTitle">Новый узел ShadowStar</h3>
+        <button class="action-icon-btn" onclick="closeModals()">✕</button>
+      </div>
+      <input type="hidden" id="mEditId" value="">
+      <div class="form-group">
+        <label>Название узла</label>
+        <input type="text" id="mName" class="form-input" placeholder="Например: VPS Нидерланды (Амстердам)">
+      </div>
+      <div class="form-group">
+        <label>Адрес:Порт (IP:Port)</label>
+        <input type="text" id="mAddr" class="form-input" placeholder="198.51.100.1:4433">
+      </div>
+      <div class="form-group">
+        <label>Мастер-ключ безопасности</label>
+        <input type="password" id="mKey" class="form-input" placeholder="32-байтный секретный ключ">
+      </div>
+      <div class="form-group">
+        <label>Маскировка SNI (Decoy Domain)</label>
+        <input type="text" id="mSni" class="form-input" value="www.microsoft.com">
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button type="button" class="sni-badge" style="cursor:pointer;" onclick="setPresetSni('www.microsoft.com')">Microsoft</button>
+          <button type="button" class="sni-badge" style="cursor:pointer;" onclick="setPresetSni('gateway.icloud.com')">Apple</button>
+          <button type="button" class="sni-badge" style="cursor:pointer;" onclick="setPresetSni('cloudflare.com')">Cloudflare</button>
+        </div>
+      </div>
+      <div class="toggle-row" style="margin-top: 14px;">
+        <div class="toggle-info">
+          <h4>TCP Chunker (Фрагментация)</h4>
+          <p>Дробит заголовок ClientHello против ТСПУ РКН</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="mChunker" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeModals()">Отмена</button>
+        <button class="btn-primary" onclick="saveServer()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Modal -->
+  <div class="modal-backdrop" id="importModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Импорт shadowstar://</h3>
+        <button class="action-icon-btn" onclick="closeModals()">✕</button>
+      </div>
+      <div class="form-group">
+        <label>Вставьте ссылку конфигурации</label>
+        <textarea id="mImportUri" class="form-input" rows="4" placeholder="shadowstar://..." style="font-family: var(--font-mono); font-size: 12px;"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeModals()">Отмена</button>
+        <button class="btn-primary" onclick="submitImport()">Импортировать</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let isConnected = false;
+    let speedHistoryDown = new Array(35).fill(0);
+    let speedHistoryUp = new Array(35).fill(0);
+    let serversCache = [];
+    let activeServerId = '';
+    let searchQuery = '';
+
+    // Switch Tabs
+    function switchTab(tab) {
+      document.querySelectorAll('.header-nav .nav-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(view => view.classList.remove('active'));
+
+      if (tab === 'main') {
+        document.getElementById('tabMainBtn').classList.add('active');
+        document.getElementById('viewMain').classList.add('active');
+      } else if (tab === 'servers') {
+        document.getElementById('tabServersBtn').classList.add('active');
+        document.getElementById('viewServers').classList.add('active');
+        renderServersView();
+      } else if (tab === 'apps') {
+        document.getElementById('tabAppsBtn').classList.add('active');
+        document.getElementById('viewApps').classList.add('active');
+      } else if (tab === 'logs') {
+        document.getElementById('tabLogsBtn').classList.add('active');
+        document.getElementById('viewLogs').classList.add('active');
+      }
+    }
+
+    // Format Bytes
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return '0.0 KB/s';
+      const k = 1024;
+      const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
+    }
+
+    function formatTotal(bytes) {
+      if (!bytes || bytes <= 0) return '0 MB';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
+    }
+
+    // Toast Notifications
+    function showToast(text, type = 'info') {
+      const box = document.getElementById('toastBox');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `<span>${escapeHtml(text)}</span>`;
+      box.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(50px)';
+        toast.style.transition = 'all 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    // Copy Text
+    function copyText(str) {
+      navigator.clipboard.writeText(str).then(() => {
+        showToast('Скопировано в буфер обмена!', 'success');
+      }).catch(() => {
+        showToast('Не удалось скопировать', 'error');
+      });
+    }
+
+    // Canvas Speed Graph
+    function drawGraph() {
+      const canvas = document.getElementById('speedCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.parentElement.clientWidth - 44;
+      const h = 145;
+      
+      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+      }
+      ctx.resetTransform();
+      ctx.scale(dpr, dpr);
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Max value for scaling
+      const maxVal = Math.max(10240, ...speedHistoryDown, ...speedHistoryUp);
+
+      // Draw subtle grid lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+      ctx.lineWidth = 1;
+      for (let y = 0; y <= h; y += 36) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      function drawAreaAndCurve(data, strokeColor, fillColor) {
+        if (!data || data.length === 0) return;
+        const step = w / (data.length - 1);
+
+        // Path for fill
+        ctx.beginPath();
+        ctx.moveTo(0, h);
+        for (let i = 0; i < data.length; i++) {
+          const x = i * step;
+          const y = h - (data[i] / maxVal) * (h - 15) - 4;
+          if (i === 0) ctx.lineTo(x, y);
+          else {
+            const prevX = (i - 1) * step;
+            const prevY = h - (data[i - 1] / maxVal) * (h - 15) - 4;
+            const cx = (prevX + x) / 2;
+            ctx.bezierCurveTo(cx, prevY, cx, y, x, y);
+          }
+        }
+        ctx.lineTo(w, h);
+        ctx.closePath();
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, fillColor);
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Path for stroke
+        ctx.beginPath();
+        for (let i = 0; i < data.length; i++) {
+          const x = i * step;
+          const y = h - (data[i] / maxVal) * (h - 15) - 4;
+          if (i === 0) ctx.moveTo(x, y);
+          else {
+            const prevX = (i - 1) * step;
+            const prevY = h - (data[i - 1] / maxVal) * (h - 15) - 4;
+            const cx = (prevX + x) / 2;
+            ctx.bezierCurveTo(cx, prevY, cx, y, x, y);
+          }
+        }
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+      }
+
+      drawAreaAndCurve(speedHistoryDown, '#00f2fe', 'rgba(0, 242, 254, 0.2)');
+      drawAreaAndCurve(speedHistoryUp, '#a855f7', 'rgba(168, 85, 247, 0.2)');
+    }
+
+    // Status Fetch Loop
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        isConnected = data.connected;
+        const hero = document.getElementById('heroCard');
+        const badge = document.getElementById('statusBadge');
+        const statusText = document.getElementById('statusText');
+        const headerPill = document.getElementById('headerStatusPill');
+        const headerText = document.getElementById('headerStatusText');
+
+        if (isConnected) {
+          hero.className = 'glass-card connect-hero connected';
+          statusText.innerText = 'ЗАЩИЩЕНО • TLS 1.3 REALITY';
+          headerPill.className = 'header-status-pill connected';
+          headerText.innerText = 'ЗАЩИЩЕНО';
+        } else {
+          hero.className = 'glass-card connect-hero';
+          statusText.innerText = 'ОТКЛЮЧЕНО';
+          headerPill.className = 'header-status-pill';
+          headerText.innerText = 'ОТКЛЮЧЕНО';
+        }
+
+        document.getElementById('speedDown').innerText = formatBytes(data.speed_down || 0);
+        document.getElementById('speedUp').innerText = formatBytes(data.speed_up || 0);
+        document.getElementById('totalDown').innerText = 'Всего: ' + formatTotal(data.bytes_down || 0);
+        document.getElementById('totalUp').innerText = 'Всего: ' + formatTotal(data.bytes_up || 0);
+        
+        document.getElementById('valPing').innerText = (data.latency > 0 ? data.latency : '--') + ' ms';
+        document.getElementById('activeConns').innerText = data.active_conns || 0;
+
+        if (data.sysproxy_enabled !== undefined) {
+          document.getElementById('sysproxyToggle').checked = data.sysproxy_enabled;
+        }
+
+        if (data.awg_active) {
+          document.getElementById('awgBanner').classList.add('active');
+        } else {
+          document.getElementById('awgBanner').classList.remove('active');
+        }
+
+        if (data.active_server_name) {
+          document.getElementById('activeServerName').innerText = data.active_server_name;
+        }
+        if (data.active_server_sni) {
+          document.getElementById('quickDecoyBadge').innerText = 'SNI: ' + data.active_server_sni;
+        }
+
+        // Timer
+        if (isConnected && data.connected_time > 0) {
+          const sec = Math.floor(Date.now() / 1000 - data.connected_time);
+          const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+          const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+          const s = String(sec % 60).padStart(2, '0');
+          document.getElementById('sessionTimer').innerText = `${h}:${m}:${s}`;
+        } else {
+          document.getElementById('sessionTimer').innerText = '00:00:00';
+        }
+
+        // Push data for chart
+        speedHistoryDown.push(data.speed_down || 0);
+        speedHistoryDown.shift();
+        speedHistoryUp.push(data.speed_up || 0);
+        speedHistoryUp.shift();
+        drawGraph();
+
+      } catch (err) {}
+    }
+
+    // Toggle Connect
+    async function toggleConnect() {
+      const hero = document.getElementById('heroCard');
+      const statusText = document.getElementById('statusText');
+      
+      hero.className = 'glass-card connect-hero connecting';
+      statusText.innerText = 'СОГЛАСОВАНИЕ ТУННЕЛЯ...';
+
+      const endpoint = isConnected ? '/api/disconnect' : '/api/connect';
+      try {
+        const res = await fetch(endpoint, { method: 'POST' });
+        if (!res.ok) {
+          const msg = await res.text();
+          showToast(msg || 'Ошибка подключения к серверу', 'error');
+        } else {
+          showToast(isConnected ? 'Туннель ShadowStar отключён' : 'Защищённый туннель ShadowStar установлен!', 'success');
+        }
+      } catch (e) {
+        showToast('Ошибка связи с ядром', 'error');
+      }
+      fetchStatus();
+    }
+
+    // Toggle System Proxy
+    async function toggleSysProxy(enable) {
+      try {
+        const res = await fetch('/api/sysproxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enable })
+        });
+        if (!res.ok) {
+          const msg = await res.text();
+          showToast(msg || 'Не удалось изменить настройки системного прокси', 'warn');
+          document.getElementById('sysproxyToggle').checked = !enable;
+        } else {
+          showToast(enable ? 'Системный прокси Windows активирован' : 'Системный прокси отключён', 'success');
+        }
+      } catch (e) {
+        showToast('Ошибка связи с клиентом', 'error');
+      }
+      fetchStatus();
+    }
+
+    // Load Servers
+    async function loadServers() {
+      try {
+        const res = await fetch('/api/servers');
+        if (!res.ok) return;
+        const cfg = await res.json();
+        serversCache = cfg.servers || [];
+        activeServerId = cfg.active_id || '';
+        document.getElementById('serversCountBadge').innerText = serversCache.length;
+        renderQuickServerCard();
+        renderServersView();
+      } catch (e) {}
+    }
+
+    function renderQuickServerCard() {
+      const container = document.getElementById('quickServerCard');
+      if (!container) return;
+      const active = serversCache.find(s => s.id === activeServerId) || serversCache[0];
+      if (!active) {
+        container.innerHTML = '<div style="color:var(--text-muted); font-size:12.5px;">Нет настроенных серверов</div>';
+        return;
+      }
+      document.getElementById('activeServerName').innerText = active.name || active.server_addr;
+      container.innerHTML = `
+        <div class="quick-server-box">
+          <div class="quick-server-header">
+            <span class="quick-server-name">${escapeHtml(active.name || 'Узел')}</span>
+            <span class="ping-pill ${getPingClass(active.ping)}" onclick="pingServer('${active.id}')">
+              ⚡ ${active.ping > 0 ? active.ping + ' ms' : '-- ms'}
+            </span>
+          </div>
+          <div class="quick-server-addr">${escapeHtml(active.server_addr)}</div>
+          <div class="quick-server-tags">
+            <span class="sni-badge">SNI: ${escapeHtml(active.sni || 'www.microsoft.com')}</span>
+            <span class="sni-badge">Chunker: ${active.enable_chunker ? 'ВКЛ' : 'ВЫКЛ'}</span>
+            <span class="sni-badge">TLS 1.3 Reality</span>
+          </div>
+        </div>
+      `;
+    }
+
+    function getPingClass(p) {
+      if (!p || p <= 0) return '';
+      if (p < 100) return 'fast';
+      if (p < 250) return 'med';
+      return 'slow';
+    }
+
+    function filterServers(query) {
+      searchQuery = (query || '').toLowerCase().trim();
+      renderServersView();
+    }
+
+    function renderServersView() {
+      const list = document.getElementById('fullServersList');
+      if (!list) return;
+
+      const filtered = serversCache.filter(s => {
+        if (!searchQuery) return true;
+        return (s.name || '').toLowerCase().includes(searchQuery) ||
+               (s.server_addr || '').toLowerCase().includes(searchQuery) ||
+               (s.sni || '').toLowerCase().includes(searchQuery);
+      });
+
+      if (filtered.length === 0) {
+        list.innerHTML = '<div style="color:var(--text-muted); padding:32px; text-align:center;">Узлы не найдены</div>';
+        return;
+      }
+
+      list.innerHTML = filtered.map(s => {
+        const isActive = (s.id === activeServerId);
+        return `
+          <div class="server-card ${isActive ? 'active' : ''}" onclick="selectServer('${s.id}')">
+            <div class="server-main-info">
+              <div class="server-radio">
+                <div class="server-radio-inner"></div>
+              </div>
+              <div class="server-details">
+                <span class="server-name">
+                  ${escapeHtml(s.name || s.server_addr)}
+                  ${isActive ? '<span class="brand-version" style="font-size:10px;">АКТИВЕН</span>' : ''}
+                </span>
+                <div class="server-meta">
+                  <span style="font-family:var(--font-mono);">${escapeHtml(s.server_addr)}</span>
+                  <span class="sni-badge">SNI: ${escapeHtml(s.sni || 'www.microsoft.com')}</span>
+                  <span class="sni-badge">Chunker: ${s.enable_chunker ? 'ВКЛ' : 'ВЫКЛ'}</span>
+                </div>
+              </div>
+            </div>
+            <div class="server-actions-right" onclick="event.stopPropagation()">
+              <button class="ping-pill ${getPingClass(s.ping)}" onclick="pingServer('${s.id}')" title="Проверить пинг">
+                ⚡ ${s.ping > 0 ? s.ping + ' ms' : 'Тест'}
+              </button>
+              <button class="action-icon-btn" onclick="shareServer('${s.id}')" title="Скопировать ссылку shadowstar://">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+              <button class="action-icon-btn" onclick="openEditServerModal('${s.id}')" title="Редактировать параметры">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              </button>
+              <button class="action-icon-btn danger" onclick="deleteServer('${s.id}')" title="Удалить узел">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function selectServer(id) {
+      if (id === activeServerId) return;
+      try {
+        const res = await fetch('/api/servers/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id })
+        });
+        if (res.ok) {
+          activeServerId = id;
+          showToast('Активный узел переключён', 'success');
+          await loadServers();
+          fetchStatus();
+        }
+      } catch (e) {}
+    }
+
+    async function pingServer(id) {
+      showToast('Тестирование задержки...', 'info');
+      try {
+        const res = await fetch('/api/servers/ping', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          showToast(`Пинг: ${data.ping} ms`, 'success');
+          await loadServers();
+        }
+      } catch (e) {}
+    }
+
+    async function pingActiveServer() {
+      if (activeServerId) {
+        await pingServer(activeServerId);
+      }
+    }
+
+    async function pingAllServers() {
+      showToast('Запущен тест задержки всех узлов...', 'info');
+      for (const s of serversCache) {
+        await pingServer(s.id);
+      }
+    }
+
+    async function shareServer(id) {
+      try {
+        const res = await fetch(`/api/servers/export?id=${encodeURIComponent(id)}`);
+        if (res.ok) {
+          const data = await res.json();
+          copyText(data.uri);
+        }
+      } catch (e) {
+        showToast('Ошибка при экспорте ссылки', 'error');
+      }
+    }
+
+    async function deleteServer(id) {
+      if (!confirm('Вы уверены, что хотите удалить этот узел?')) return;
+      try {
+        const res = await fetch('/api/servers/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id })
+        });
+        if (res.ok) {
+          showToast('Узел удалён', 'success');
+          await loadServers();
+        } else {
+          const msg = await res.text();
+          showToast(msg, 'error');
+        }
+      } catch (e) {}
+    }
+
+    // Modal Helpers
+    function openAddServerModal() {
+      document.getElementById('modalTitle').innerText = 'Новый узел ShadowStar';
+      document.getElementById('mEditId').value = '';
+      document.getElementById('mName').value = '';
+      document.getElementById('mAddr').value = '';
+      document.getElementById('mKey').value = '';
+      document.getElementById('mSni').value = 'www.microsoft.com';
+      document.getElementById('mChunker').checked = true;
+      document.getElementById('serverModal').classList.add('active');
+    }
+
+    function openEditServerModal(id) {
+      const s = serversCache.find(x => x.id === id);
+      if (!s) return;
+      document.getElementById('modalTitle').innerText = 'Редактировать узел';
+      document.getElementById('mEditId').value = s.id;
+      document.getElementById('mName').value = s.name || '';
+      document.getElementById('mAddr').value = s.server_addr || '';
+      document.getElementById('mKey').value = s.master_key || '';
+      document.getElementById('mSni').value = s.sni || 'www.microsoft.com';
+      document.getElementById('mChunker').checked = !!s.enable_chunker;
+      document.getElementById('serverModal').classList.add('active');
+    }
+
+    function openImportModal() {
+      document.getElementById('mImportUri').value = '';
+      document.getElementById('importModal').classList.add('active');
+    }
+
+    function closeModals() {
+      document.getElementById('serverModal').classList.remove('active');
+      document.getElementById('importModal').classList.remove('active');
+    }
+
+    function setPresetSni(sni) {
+      document.getElementById('mSni').value = sni;
+    }
+
+    async function saveServer() {
+      const editId = document.getElementById('mEditId').value;
+      const name = document.getElementById('mName').value.trim();
+      const server_addr = document.getElementById('mAddr').value.trim();
+      const master_key = document.getElementById('mKey').value.trim();
+      const sni = document.getElementById('mSni').value.trim() || 'www.microsoft.com';
+      const enable_chunker = document.getElementById('mChunker').checked;
+
+      if (!server_addr) {
+        showToast('Укажите адрес сервера (IP:Port)', 'error');
+        return;
+      }
+      if (!editId && !master_key) {
+        showToast('Укажите мастер-ключ безопасности', 'error');
+        return;
+      }
+
+      const endpoint = editId ? '/api/servers/update' : '/api/servers/add';
+      const payload = { id: editId, name: name || server_addr, server_addr, master_key, sni, enable_chunker };
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          closeModals();
+          showToast(editId ? 'Параметры узла обновлены' : 'Новый узел добавлен!', 'success');
+          await loadServers();
+        } else {
+          const err = await res.text();
+          showToast(err || 'Ошибка сохранения', 'error');
+        }
+      } catch (e) {
+        showToast('Сетевая ошибка', 'error');
+      }
+    }
+
+    async function submitImport() {
+      const uri = document.getElementById('mImportUri').value.trim();
+      if (!uri) {
+        showToast('Вставьте ссылку конфигурации', 'warn');
+        return;
+      }
+      try {
+        const res = await fetch('/api/servers/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uri })
+        });
+        if (res.ok) {
+          closeModals();
+          showToast('Ссылка успешно импортирована!', 'success');
+          await loadServers();
+        } else {
+          const err = await res.text();
+          showToast(err || 'Неверный формат ссылки', 'error');
+        }
+      } catch (e) {
+        showToast('Ошибка при импорте', 'error');
+      }
+    }
+
+    // Protocol Logs
+    let cachedLogs = [];
+    async function fetchLogs() {
+      try {
+        const res = await fetch('/api/logs');
+        if (!res.ok) return;
+        const lines = await res.json();
+        cachedLogs = lines || [];
+        const box = document.getElementById('terminalLogs');
+        if (!box) return;
+
+        const isScrolledToBottom = box.scrollHeight - box.clientHeight <= box.scrollTop + 35;
+
+        box.innerHTML = cachedLogs.map(line => {
+          let tagClass = 'info';
+          if (line.includes('[Auth') || line.includes('[Handshake-Success')) tagClass = 'auth';
+          else if (line.includes('[Warning') || line.includes('[Coexist')) tagClass = 'warn';
+          else if (line.includes('[Error') || line.includes('fail')) tagClass = 'error';
+
+          return `<div class="log-line"><span class="log-tag ${tagClass}">●</span><span>${escapeHtml(line)}</span></div>`;
+        }).join('');
+
+        if (isScrolledToBottom) {
+          box.scrollTop = box.scrollHeight;
+        }
+      } catch (e) {}
+    }
+
+    function clearLogsUI() {
+      document.getElementById('terminalLogs').innerHTML = '';
+      showToast('Журнал очищен', 'info');
+    }
+
+    function copyAllLogs() {
+      if (!cachedLogs || cachedLogs.length === 0) {
+        showToast('Журнал пуст', 'warn');
+        return;
+      }
+      copyText(cachedLogs.join('\n'));
+    }
+
+    // Quit Application
+    async function handleQuitApp() {
+      if (!confirm('Выключить прокси и закрыть клиент ShadowStar?')) return;
+      try {
+        await fetch('/api/shutdown', { method: 'POST' });
+      } catch (e) {}
+      window.close();
+    }
+
+    // Keyboard Shortcuts
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeModals();
+      } else if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        toggleConnect();
+      } else if (e.ctrlKey && e.key === '1') {
+        switchTab('main');
+      } else if (e.ctrlKey && e.key === '2') {
+        switchTab('servers');
+      } else if (e.ctrlKey && e.key === '3') {
+        switchTab('apps');
+      } else if (e.ctrlKey && e.key === '4') {
+        switchTab('logs');
+      }
+    });
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Initialize
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchStatus();
+      loadServers();
+      fetchLogs();
+      setInterval(fetchStatus, 1000);
+      setInterval(fetchLogs, 2000);
+      window.addEventListener('resize', drawGraph);
+    });
+  </script>
+</body>
+</html>

@@ -36,6 +36,8 @@ body {
   max-width: 480px;
   margin: 0 auto;
   padding: 16px;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 /* Header */
@@ -75,6 +77,7 @@ body {
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
+  flex-shrink: 0;
   transition: all 0.2s;
 }
 
@@ -94,6 +97,7 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .icon-sm {
@@ -105,6 +109,7 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .icon-shield {
@@ -116,6 +121,7 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .icon-inline {
@@ -129,6 +135,7 @@ body {
   vertical-align: -2px;
   margin-right: 4px;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .power-svg {
@@ -151,6 +158,7 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
   margin-bottom: 2px;
+  flex-shrink: 0;
 }
 
 /* Tab Navigation (Bottom Bar) */
@@ -280,6 +288,8 @@ body {
   padding: 16px;
   margin-bottom: 14px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 /* Telemetry Grid */
@@ -295,6 +305,7 @@ body {
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
   padding: 14px;
+  overflow: hidden;
 }
 
 .telem-label {
@@ -311,6 +322,9 @@ body {
   font-family: var(--font-mono);
   display: flex;
   align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .telem-val.down {
@@ -327,12 +341,29 @@ body {
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 12px;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .node-title-row {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  flex: 1 1 0%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.node-title-row > div,
+.node-info-col {
+  min-width: 0;
+  flex: 1 1 0%;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .country-pill {
@@ -344,17 +375,26 @@ body {
   padding: 4px 8px;
   border-radius: 6px;
   font-family: var(--font-mono);
+  flex-shrink: 0;
 }
 
 .node-name {
   font-size: 15px;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .node-addr {
   font-size: 12px;
   color: var(--text-dim);
   font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .ping-pill {
@@ -365,6 +405,7 @@ body {
   background: rgba(16, 185, 129, 0.15);
   color: var(--accent-green);
   font-family: var(--font-mono);
+  flex-shrink: 0;
 }
 
 .node-detail-grid {
@@ -378,6 +419,9 @@ body {
 
 .node-detail-item {
   color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .node-detail-item strong {
@@ -424,11 +468,61 @@ body {
   margin-bottom: 10px;
   cursor: pointer;
   transition: all 0.2s;
+  overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .server-item.active {
   border-color: var(--accent-cyan);
   background: var(--bg-card-active);
+}
+
+.server-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.server-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 0%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.server-title-group > div,
+.server-info-col {
+  min-width: 0;
+  flex: 1 1 0%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.server-name {
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.server-addr {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .server-actions {
@@ -449,6 +543,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
   transition: all 0.2s;
 }
 
@@ -496,6 +591,8 @@ body {
   max-width: 480px;
   max-height: 85vh;
   overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
   box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.6);
   transform: translateY(100%);
   transition: transform 0.25s cubic-bezier(0.1, 0.9, 0.2, 1);
@@ -526,6 +623,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 /* Segmented Control Tabs */
@@ -561,6 +659,8 @@ body {
 /* Inputs */
 .input-group {
   margin-bottom: 14px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .input-label {
@@ -573,6 +673,8 @@ body {
 
 .input-field {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   background: #141C2B;
   border: 1px solid #283954;
   border-radius: 8px;
@@ -581,6 +683,9 @@ body {
   color: var(--text-main);
   outline: none;
   font-family: inherit;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .input-field:focus {
@@ -591,10 +696,18 @@ body {
   display: flex;
   gap: 8px;
   align-items: center;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .input-with-action .input-field {
-  flex: 1;
+  flex: 1 1 0%;
+  min-width: 0;
+  width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .input-action-btn {
@@ -610,6 +723,7 @@ body {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.2s;
 }
 
@@ -624,6 +738,7 @@ body {
   color: var(--text-dim);
   margin-top: 5px;
   line-height: 1.4;
+  word-break: break-word;
 }
 
 .btn-primary {
@@ -638,6 +753,7 @@ body {
   cursor: pointer;
   margin-top: 10px;
   transition: all 0.2s;
+  box-sizing: border-box;
 }
 
 .btn-primary:active {
@@ -653,7 +769,7 @@ body {
   transform: translateX(-50%) translateY(-100px);
   background: rgba(16, 185, 129, 0.95);
   color: #FFFFFF;
-  padding: 10px 20px;
+  padding: 10px 18px;
   border-radius: 20px;
   font-size: 13px;
   font-weight: 700;
@@ -661,6 +777,12 @@ body {
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
   transition: transform 0.3s cubic-bezier(0.1, 0.9, 0.2, 1);
   pointer-events: none;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toast.show {

@@ -73,7 +73,11 @@ func DecodeURIToProfile(rawURI string) (*client.ServerProfile, error) {
 	if sni == "" {
 		sni = "www.microsoft.com"
 	}
-	chunker := u.Query().Get("chunker") == "1" || u.Query().Get("chunker") == "true"
+	chunkerVal := u.Query().Get("chunker")
+	chunker := true
+	if chunkerVal == "0" || chunkerVal == "false" {
+		chunker = false
+	}
 	padding, _ := strconv.Atoi(u.Query().Get("padding"))
 	if padding == 0 {
 		padding = 64

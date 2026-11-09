@@ -15,11 +15,15 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
 
@@ -27,11 +31,17 @@ public class MainActivity extends Activity {
     private WebView webView;
     private Process daemonProcess;
 
+    public String lastProfileName = "";
+    public String lastProfileAddr = "";
+    public String lastProfileKey = "";
+    public String lastProfileSni = "www.microsoft.com";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        startGoDaemonAsync();
+        initDefaultProfileFromAsset();
+        startGoDaemonInitial();
 
         webView = new WebView(this);
         webView.setBackgroundColor(0xFF090D16);
@@ -69,6 +79,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void initDefaultProfileFromAsset() {
+        try {
+            String cfg = loadAsset("config.json");
+            if (cfg != null && !cfg.isEmpty()) {
+                org.json.JSONObject obj = new org.json.JSONObject(cfg);
+                org.json.JSONArray servers = obj.optJSONArray("servers");
+                if (servers != null && servers.length() > 0) {
+                    org.json.JSONObject first = servers.getJSONObject(0);
+                    lastProfileName = first.optString("name", "ShadowStar Node");
+                    lastProfileAddr = first.optString("server_addr", "demo-node.shadowstar.org:4433");
+                    lastProfileKey = first.optString("master_key", "shadowstar-demo-key-v1");
+                    lastProfileSni = first.optString("sni", "www.microsoft.com");
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
     public String loadAsset(String name) {
         String[] candidates = new String[]{name, "web/" + name, "web\\" + name};
         for (String candidate : candidates) {
@@ -86,34 +113,118 @@ public class MainActivity extends Activity {
         return "";
     }
 
-    private void startGoDaemonAsync() {
-        Thread thread = new Thread(new DaemonRunner(this));
-        thread.start();
-    }
-
-    private static class DaemonRunner implements Runnable {
-        private final MainActivity activity;
-
-        DaemonRunner(MainActivity activity) {
-            this.activity = activity;
-        }
-
-        @Override
-        public void run() {
+    private void startGoDaemonInitial() {
+        new Thread(() -> {
             try {
-                File binFile = new File(activity.getApplicationInfo().nativeLibraryDir, "libshadowstar.so");
+                File binFile = new File(getApplicationInfo().nativeLibraryDir, "libshadowstar.so");
                 if (binFile.exists()) {
                     binFile.setExecutable(true);
-                    File cfgFile = new File(activity.getFilesDir(), "config.json");
+                    File cfgFile = new File(getFilesDir(), "config.json");
                     if (!cfgFile.exists()) {
-                        activity.copyAssetToFile("config.json", cfgFile);
+                        copyAssetToFile("config.json", cfgFile);
                     }
                     ProcessBuilder pb = new ProcessBuilder(binFile.getAbsolutePath(), "-c", cfgFile.getAbsolutePath());
-                    pb.directory(activity.getFilesDir());
-                    activity.daemonProcess = pb.start();
+                    pb.directory(getFilesDir());
+                    pb.redirectErrorStream(true);
+                    daemonProcess = pb.start();
+                    drainProcessOutput(daemonProcess);
                 }
             } catch (Throwable ignored) {
             }
+        }).start();
+    }
+
+    public void startGoDaemonWithProfile(String addr, String key, String sni) {
+        new Thread(() -> {
+            try {
+                if (daemonProcess != null) {
+                    try { daemonProcess.destroy(); } catch (Throwable ignored) {}
+                    daemonProcess = null;
+                }
+
+                File binFile = new File(getApplicationInfo().nativeLibraryDir, "libshadowstar.so");
+                if (binFile.exists()) {
+                    binFile.setExecutable(true);
+
+                    String cleanKey = (key != null && !key.isEmpty()) ? key : lastProfileKey;
+                    String cleanAddr = (addr != null && !addr.isEmpty()) ? addr : lastProfileAddr;
+                    String cleanSni = (sni != null && !sni.isEmpty()) ? sni : lastProfileSni;
+
+                    File cfgFile = new File(getFilesDir(), "config.json");
+                    String cfgJson = "{\"socks_addr\":\"127.0.0.1:10808\",\"http_addr\":\"127.0.0.1:10809\","
+                            + "\"servers\":[{\"id\":\"active\",\"name\":\"Active Node\","
+                            + "\"server_addr\":\"" + cleanAddr + "\","
+                            + "\"master_key\":\"" + cleanKey + "\","
+                            + "\"sni\":\"" + cleanSni + "\","
+                            + "\"enable_chunker\":true}],"
+                            + "\"active_id\":\"active\"}";
+                    try (FileOutputStream fos = new FileOutputStream(cfgFile)) {
+                        fos.write(cfgJson.getBytes("UTF-8"));
+                    } catch (Throwable ignored) {}
+
+                    String uri = "shadowstar://" + cleanKey + "@" + cleanAddr + "/?sni=" + cleanSni + "&chunker=1&name=Active";
+                    ProcessBuilder pb = new ProcessBuilder(
+                            binFile.getAbsolutePath(),
+                            "-c", cfgFile.getAbsolutePath(),
+                            "-connect", uri
+                    );
+                    pb.directory(getFilesDir());
+                    pb.redirectErrorStream(true);
+                    daemonProcess = pb.start();
+                    drainProcessOutput(daemonProcess);
+                }
+            } catch (Throwable ignored) {
+            }
+        }).start();
+    }
+
+    private void drainProcessOutput(Process process) {
+        new Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    android.util.Log.i("ShadowStarDaemon", line);
+                }
+            } catch (Throwable ignored) {}
+        }).start();
+    }
+
+    public void launchVpnService() {
+        startGoDaemonWithProfile(lastProfileAddr, lastProfileKey, lastProfileSni);
+
+        Intent vpnIntent = new Intent(this, ShadowStarVpnService.class);
+        vpnIntent.setAction("START");
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(vpnIntent);
+            } else {
+                startService(vpnIntent);
+            }
+        } catch (Throwable t) {
+            try {
+                startService(vpnIntent);
+            } catch (Throwable ignored) {}
+        }
+
+        if (webView != null) {
+            webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(true);", null);
+        }
+    }
+
+    public void stopVpnService() {
+        if (daemonProcess != null) {
+            try { daemonProcess.destroy(); } catch (Throwable ignored) {}
+            daemonProcess = null;
+        }
+
+        Intent vpnIntent = new Intent(this, ShadowStarVpnService.class);
+        vpnIntent.setAction("STOP");
+        try {
+            startService(vpnIntent);
+        } catch (Throwable ignored) {}
+
+        if (webView != null) {
+            webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(false);", null);
         }
     }
 
@@ -138,25 +249,8 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == VPN_REQUEST_CODE) {
             if (resultCode == RESULT_OK) {
-                try {
-                    Intent vpnIntent = new Intent(this, ShadowStarVpnService.class);
-                    vpnIntent.setAction("START");
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(vpnIntent);
-                    } else {
-                        startService(vpnIntent);
-                    }
-                } catch (Throwable t) {
-                    try {
-                        Intent vpnIntent = new Intent(this, ShadowStarVpnService.class);
-                        vpnIntent.setAction("START");
-                        startService(vpnIntent);
-                    } catch (Throwable ignored) {}
-                }
-                Toast.makeText(this, "✓ ShadowStar VPN запущен", Toast.LENGTH_SHORT).show();
-                if (webView != null) {
-                    webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(true);", null);
-                }
+                launchVpnService();
+                Toast.makeText(this, "ShadowStar VPN запущен", Toast.LENGTH_SHORT).show();
             } else {
                 Toast.makeText(this, "Требуется разрешение для VPN-туннеля", Toast.LENGTH_SHORT).show();
                 if (webView != null) {
@@ -178,11 +272,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (daemonProcess != null) {
-            try {
-                daemonProcess.destroy();
-            } catch (Throwable ignored) {}
-        }
+        stopVpnService();
     }
 
     private static class SafeWebViewClient extends WebViewClient {
@@ -209,12 +299,29 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void startVpn() {
-            activity.runOnUiThread(new StartVpnRunnable(activity));
+            startVpnWithProfile(activity.lastProfileName, activity.lastProfileAddr, activity.lastProfileKey, activity.lastProfileSni);
+        }
+
+        @JavascriptInterface
+        public void startVpnWithProfile(String name, String addr, String key, String sni) {
+            activity.runOnUiThread(() -> {
+                if (name != null && !name.isEmpty()) activity.lastProfileName = name;
+                if (addr != null && !addr.isEmpty()) activity.lastProfileAddr = addr;
+                if (key != null && !key.isEmpty()) activity.lastProfileKey = key;
+                if (sni != null && !sni.isEmpty()) activity.lastProfileSni = sni;
+
+                Intent prepare = VpnService.prepare(activity);
+                if (prepare != null) {
+                    activity.startActivityForResult(prepare, VPN_REQUEST_CODE);
+                } else {
+                    activity.launchVpnService();
+                }
+            });
         }
 
         @JavascriptInterface
         public void stopVpn() {
-            activity.runOnUiThread(new StopVpnRunnable(activity));
+            activity.runOnUiThread(activity::stopVpnService);
         }
 
         @JavascriptInterface
@@ -238,7 +345,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String getClipboardText() {
             final String[] result = new String[]{""};
-            final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+            final CountDownLatch latch = new CountDownLatch(1);
             activity.runOnUiThread(() -> {
                 try {
                     ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
@@ -254,7 +361,7 @@ public class MainActivity extends Activity {
                 }
             });
             try {
-                latch.await(350, java.util.concurrent.TimeUnit.MILLISECONDS);
+                latch.await(350, TimeUnit.MILLISECONDS);
             } catch (InterruptedException ignored) {}
             return result[0];
         }
@@ -271,67 +378,6 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String getPlatform() {
             return "android";
-        }
-    }
-
-    private static class StartVpnRunnable implements Runnable {
-        private final MainActivity activity;
-
-        StartVpnRunnable(MainActivity activity) {
-            this.activity = activity;
-        }
-
-        @Override
-        public void run() {
-            try {
-                Intent prepare = VpnService.prepare(activity);
-                if (prepare != null) {
-                    activity.startActivityForResult(prepare, VPN_REQUEST_CODE);
-                } else {
-                    Intent vpnIntent = new Intent(activity, ShadowStarVpnService.class);
-                    vpnIntent.setAction("START");
-                    try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            activity.startForegroundService(vpnIntent);
-                        } else {
-                            activity.startService(vpnIntent);
-                        }
-                    } catch (Throwable t) {
-                        try {
-                            activity.startService(vpnIntent);
-                        } catch (Throwable ignored) {}
-                    }
-                    if (activity.webView != null) {
-                        activity.webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(true);", null);
-                    }
-                }
-            } catch (Throwable t) {
-                try {
-                    Toast.makeText(activity, "Ошибка запуска: " + t.getMessage(), Toast.LENGTH_LONG).show();
-                } catch (Throwable ignored) {}
-            }
-        }
-    }
-
-    private static class StopVpnRunnable implements Runnable {
-        private final MainActivity activity;
-
-        StopVpnRunnable(MainActivity activity) {
-            this.activity = activity;
-        }
-
-        @Override
-        public void run() {
-            try {
-                Intent vpnIntent = new Intent(activity, ShadowStarVpnService.class);
-                vpnIntent.setAction("STOP");
-                try {
-                    activity.startService(vpnIntent);
-                } catch (Throwable ignored) {}
-                if (activity.webView != null) {
-                    activity.webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(false);", null);
-                }
-            } catch (Throwable ignored) {}
         }
     }
 }

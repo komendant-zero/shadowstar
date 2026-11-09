@@ -33,15 +33,14 @@ New-Item -ItemType Directory -Path "d:\ocli\ShadowStar\bin" -Force | Out-Null
 Write-Host "[1/7] Compiling Android resources..." -ForegroundColor Yellow
 & $Aapt2 compile --dir "$SrcRoot\res" -o "$WorkDir\compiled_res\res.zip"
 
-# Build Android Go daemon if missing
+# Build Android Go daemon
 New-Item -ItemType Directory -Path "$SrcRoot\lib\arm64-v8a" -Force | Out-Null
-if (-not (Test-Path "$SrcRoot\lib\arm64-v8a\libshadowstar.so")) {
-    Write-Host "Compiling Go daemon for Android arm64..." -ForegroundColor Yellow
-    $env:GOOS = "android"
-    $env:GOARCH = "arm64"
-    $env:CGO_ENABLED = "0"
-    & go build -trimpath -ldflags="-s -w" -o "$SrcRoot\lib\arm64-v8a\libshadowstar.so" ./cmd/shadowstar-mobile
-}
+Write-Host "Compiling Go daemon for Android arm64..." -ForegroundColor Yellow
+$env:GOOS = "android"
+$env:GOARCH = "arm64"
+$env:CGO_ENABLED = "0"
+$env:GOCACHE = "d:\ocli\ShadowStar\.gocache"
+& go build -buildvcs=false -trimpath -ldflags="-s -w" -o "$SrcRoot\lib\arm64-v8a\libshadowstar.so" ./cmd/shadowstar-mobile
 
 function Build-Variant {
     param(

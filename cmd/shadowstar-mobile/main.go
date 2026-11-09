@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/shadowstar/shadowstar/pkg/client"
+	"github.com/shadowstar/shadowstar/pkg/config"
 	"github.com/shadowstar/shadowstar/pkg/mobile"
 )
 
@@ -39,11 +40,42 @@ func main() {
 
 	// If direct connect URI passed on command line
 	if *connectNode != "" {
-		if strings.HasPrefix(*connectNode, "shadowstar://") {
-			profJSON, err := mobile.ParseShadowStarURI(*connectNode)
-			if err == nil {
-				_, _ = mobile.StartVPN(profJSON)
+		uri := *connectNode
+		if !strings.HasPrefix(uri, "shadowstar://") {
+			uri = "shadowstar://" + uri
+		}
+		profJSON, err := mobile.ParseShadowStarURI(uri)
+		if err == nil {
+			_, startErr := mobile.StartVPN(profJSON)
+			if startErr != nil {
+				log.Printf("[ShadowStar-Mobile] Auto-connect error: %v", startErr)
+			} else {
 				log.Printf("[ShadowStar-Mobile] Auto-connected to URI node")
+			}
+		} else {
+			log.Printf("[ShadowStar-Mobile] Failed to parse connect URI: %v", err)
+		}
+	} else if *cfgPath != "" {
+		// Auto-load config.json and connect to active node
+		if cfg, err := config.LoadClientConfig(*cfgPath); err == nil && cfg != nil && len(cfg.Servers) > 0 {
+			var activeProf *client.ServerProfile
+			for i := range cfg.Servers {
+				if cfg.Servers[i].ID == cfg.ActiveID {
+					activeProf = &cfg.Servers[i]
+					break
+				}
+			}
+			if activeProf == nil {
+				activeProf = &cfg.Servers[0]
+			}
+			if activeProf.ServerAddr != "" && activeProf.MasterKey != "" {
+				rawJSON, _ := json.Marshal(activeProf)
+				_, startErr := mobile.StartVPN(string(rawJSON))
+				if startErr != nil {
+					log.Printf("[ShadowStar-Mobile] Config auto-connect error: %v", startErr)
+				} else {
+					log.Printf("[ShadowStar-Mobile] Auto-connected to active server from config: %s (%s)", activeProf.Name, activeProf.ServerAddr)
+				}
 			}
 		}
 	}

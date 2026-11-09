@@ -214,20 +214,39 @@ function loadStoredServers() {
   const cfgList = embeddedCfg ? (embeddedCfg.servers || embeddedCfg.nodes || []) : [];
   const onlyHasDemo = !state.servers || state.servers.length === 0 || state.servers.every(s => s.id === 'node-nl-demo' || s.id === 'shadowstar-demo-node');
 
-  if (cfgList.length > 0 && onlyHasDemo) {
-    state.servers = cfgList.map((n, idx) => ({
-      id: n.id || ('node-' + idx),
-      name: n.name || 'ShadowStar Node',
-      addr: n.server_addr || n.addr,
-      key: n.master_key || n.key,
-      sni: n.sni || 'www.microsoft.com',
-      country: n.country || 'NL',
-      ping: n.ping || 25
-    }));
-    if (embeddedCfg.active_id) {
-      state.activeServerId = embeddedCfg.active_id;
+  if (cfgList.length > 0) {
+    if (onlyHasDemo) {
+      state.servers = cfgList.map((n, idx) => ({
+        id: n.id || ('node-' + idx),
+        name: n.name || 'ShadowStar Node',
+        addr: n.server_addr || n.addr,
+        key: n.master_key || n.key,
+        sni: n.sni || 'www.microsoft.com',
+        country: n.country || 'NL',
+        ping: n.ping || 25
+      }));
+      state.activeServerId = embeddedCfg.active_id || (state.servers[0] ? state.servers[0].id : null);
+      saveStoredServers();
+    } else {
+      // Ensure real embedded server is present in the list
+      cfgList.forEach((n, idx) => {
+        const addr = n.server_addr || n.addr;
+        if (addr && !state.servers.some(s => s.addr === addr)) {
+          state.servers.unshift({
+            id: n.id || ('node-' + idx),
+            name: n.name || 'ShadowStar Node',
+            addr: addr,
+            key: n.master_key || n.key,
+            sni: n.sni || 'www.microsoft.com',
+            country: n.country || 'NL',
+            ping: n.ping || 25
+          });
+        }
+      });
+      // Filter out any broken test nodes pointing to 127.0.0.1
+      state.servers = state.servers.filter(s => s.addr !== '127.0.0.1:4433');
+      saveStoredServers();
     }
-    saveStoredServers();
   } else if (!state.servers || state.servers.length === 0) {
     state.servers = [
       {
@@ -295,7 +314,16 @@ async function toggleConnect() {
       renderPowerButton();
       showToast(active.name);
       try {
-        window.AndroidBridge.startVpn();
+        if (window.AndroidBridge.startVpnWithProfile) {
+          window.AndroidBridge.startVpnWithProfile(
+            active.name || 'ShadowStar Node',
+            active.addr || (window.EMBEDDED_CONFIG && window.EMBEDDED_CONFIG.servers && window.EMBEDDED_CONFIG.servers[0] ? window.EMBEDDED_CONFIG.servers[0].server_addr : 'demo-node.shadowstar.org:4433'),
+            active.key || '',
+            active.sni || 'www.microsoft.com'
+          );
+        } else {
+          window.AndroidBridge.startVpn();
+        }
       } catch(e) {
         state.connecting = false;
         renderPowerButton();
@@ -409,7 +437,7 @@ function renderActiveNodeCard() {
     <div class="node-overview-header">
       <div class="node-title-row">
         <span class="country-pill">${escapeHtml(active.country || 'VIP')}</span>
-        <div>
+        <div class="node-info-col">
           <div class="node-name">${escapeHtml(active.name)}</div>
           <div class="node-addr">${escapeHtml(active.addr)}</div>
         </div>
@@ -443,12 +471,12 @@ function renderServersList() {
     const isAct = (s.id === state.activeServerId);
     return `
       <div class="server-item ${isAct ? 'active' : ''}" onclick="selectServer('${s.id}')">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-          <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="server-header-row">
+          <div class="server-title-group">
             <span class="country-pill">${escapeHtml(s.country || 'VIP')}</span>
-            <div>
-              <div style="font-size: 15px; font-weight: 700;">${escapeHtml(s.name)}</div>
-              <div style="font-size: 12px; color: var(--text-dim); font-family: var(--font-mono);">${escapeHtml(s.addr)}</div>
+            <div class="server-info-col">
+              <div class="server-name">${escapeHtml(s.name)}</div>
+              <div class="server-addr">${escapeHtml(s.addr)}</div>
             </div>
           </div>
           <span class="ping-pill">${s.ping || 30} ms</span>
@@ -610,12 +638,22 @@ function saveQuickNode() {
   }
 
   if (!nodeAddr) {
-    const active = state.servers.find(s => s.id === state.activeServerId);
-    nodeAddr = active ? active.addr : '127.0.0.1:4433';
+    let defaultAddr = 'demo-node.shadowstar.org:4433';
+    if (window.EMBEDDED_CONFIG && window.EMBEDDED_CONFIG.servers && window.EMBEDDED_CONFIG.servers.length > 0) {
+      defaultAddr = window.EMBEDDED_CONFIG.servers[0].server_addr || window.EMBEDDED_CONFIG.servers[0].addr || defaultAddr;
+    } else {
+      const active = state.servers.find(s => s.id === state.activeServerId);
+      if (active && active.addr && !active.addr.includes('127.0.0.1')) {
+        defaultAddr = active.addr;
+      }
+    }
+    nodeAddr = defaultAddr;
   }
 
   if (!nodeName) {
     nodeName = 'Node ' + (nodeAddr.includes(':') ? nodeAddr.split(':')[0] : nodeAddr);
+  } else if (nodeName.length > 25) {
+    nodeName = nodeName.substring(0, 10) + '...' + nodeName.substring(nodeName.length - 8);
   }
 
   const newNode = {

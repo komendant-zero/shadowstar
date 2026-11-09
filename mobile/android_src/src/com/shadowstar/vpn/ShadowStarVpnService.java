@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.net.ProxyInfo;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -61,13 +62,25 @@ public class ShadowStarVpnService extends VpnService {
             try {
                 startForeground(1001, notification);
             } catch (Throwable ignored) {
-                // Ignore any FGS / notification restrictions so VPN tunnel continues
             }
 
             Builder builder = new Builder();
             builder.setSession("ShadowStar");
             builder.addAddress("10.254.1.2", 24);
-            builder.addRoute("0.0.0.0", 0);
+
+            try {
+                builder.addDisallowedApplication(getPackageName());
+            } catch (Throwable ignored) {
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    builder.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", 10809));
+                } catch (Throwable ignored) {
+                }
+            }
+            builder.addRoute("10.254.1.0", 24);
+
             builder.addDnsServer("1.1.1.1");
             builder.addDnsServer("8.8.8.8");
             builder.setMtu(1500);

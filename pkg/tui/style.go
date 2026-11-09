@@ -46,9 +46,79 @@ func StripANSI(str string) string {
 	return ansiRegexp.ReplaceAllString(str, "")
 }
 
+func RuneWidth(r rune) int {
+	if r == 0xFE0F || r == 0xFE0E {
+		return 0 // Variation selector (zero width)
+	}
+	// Wide emoji / East Asian characters
+	if (r >= 0x1F300 && r <= 0x1FAFF) || (r >= 0x2E80 && r <= 0x9FFF) {
+		return 2
+	}
+	return 1
+}
+
 func VisibleLen(str string) int {
 	clean := StripANSI(str)
-	return utf8.RuneCountInString(clean)
+	w := 0
+	for _, r := range clean {
+		w += RuneWidth(r)
+	}
+	return w
+}
+
+// FitLine ensures the string s has exactly visible width 'width',
+// properly handling ANSI escape sequences, UTF-8 runes, and wide characters.
+func FitLine(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	curW := 0
+	inEsc := false
+	truncated := false
+
+	runes := []rune(s)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+
+		// Check for ANSI escape start
+		if r == 0x1b {
+			inEsc = true
+			b.WriteRune(r)
+			continue
+		}
+
+		if inEsc {
+			b.WriteRune(r)
+			// ANSI CSI ends at any byte between 0x40 and 0x7E (e.g. 'm', 'H', 'J', etc.)
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+
+		rw := RuneWidth(r)
+		if curW+rw > width {
+			truncated = true
+			break
+		}
+
+		b.WriteRune(r)
+		curW += rw
+	}
+
+	if truncated {
+		// Reset styles if truncated in the middle of styled text
+		b.WriteString(Reset)
+	}
+
+	// Pad if shorter than width
+	if curW < width {
+		b.WriteString(strings.Repeat(" ", width-curW))
+	}
+
+	return b.String()
 }
 
 func Cyan(s string) string          { return FgCyan + s + Reset }
@@ -69,7 +139,7 @@ func Dim(s string) string           { return DimSeq + s + Reset }
 func PadRight(s string, width int) string {
 	vl := VisibleLen(s)
 	if vl >= width {
-		return Truncate(s, width)
+		return FitLine(s, width)
 	}
 	return s + strings.Repeat(" ", width-vl)
 }
@@ -98,7 +168,7 @@ func Truncate(s string, width int) string {
 func Center(s string, width int) string {
 	vl := VisibleLen(s)
 	if vl >= width {
-		return Truncate(s, width)
+		return FitLine(s, width)
 	}
 	pad := (width - vl) / 2
 	rightPad := width - vl - pad

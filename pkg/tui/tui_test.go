@@ -148,3 +148,50 @@ func TestRenderFrameSmoke(t *testing.T) {
 		t.Fatalf("modal frame missing title")
 	}
 }
+
+func TestExactLineWidthAlignment(t *testing.T) {
+	cfg := &client.Config{
+		SocksAddr: "127.0.0.1:10808",
+		HttpAddr:  "127.0.0.1:10809",
+		Servers: []client.ServerProfile{
+			{
+				ID:         "srv-1",
+				Name:       "Frankfurt Ultra",
+				ServerAddr: "45.12.33.1:443",
+				SNI:        "www.microsoft.com",
+				Country:    "NL",
+				Ping:       38,
+			},
+			{
+				ID:         "srv-2",
+				Name:       "Helsinki Edge",
+				ServerAddr: "82.118.2.90:443",
+				SNI:        "www.microsoft.com",
+				Country:    "FI",
+				Ping:       29,
+			},
+		},
+		ActiveID: "srv-1",
+	}
+
+	c, _ := client.NewClient(cfg.Servers[0], cfg.SocksAddr, cfg.HttpAddr)
+	app := New("test.json", c, cfg)
+
+	widths := []int{72, 80, 84, 90, 100, 120}
+	tabs := []int{TabServers, TabLogs, TabDiagnostics}
+
+	for _, w := range widths {
+		for _, tab := range tabs {
+			app.activeTab = tab
+			frame := app.RenderFrame(w, 22)
+			lines := strings.Split(frame, "\n")
+			for lineIdx, line := range lines {
+				vl := VisibleLen(line)
+				if vl != w {
+					t.Errorf("Width %d, Tab %d, Line %d has visible length %d, expected %d: %q",
+						w, tab, lineIdx, vl, w, StripANSI(line))
+				}
+			}
+		}
+	}
+}

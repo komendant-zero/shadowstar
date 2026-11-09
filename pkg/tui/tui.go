@@ -77,6 +77,14 @@ func New(cfgPath string, c *client.Client, cfg *client.Config) *TUI {
 	return t
 }
 
+func (t *TUI) SetStateForTest(stats client.Stats, toast string, histUp, histDown []float64) {
+	t.stats = stats
+	t.toastMsg = toast
+	t.toastTimer = 10
+	t.historyUp = histUp
+	t.historyDown = histDown
+}
+
 func (t *TUI) Run(autoConnect bool) error {
 	if err := InitTerminal(); err != nil {
 		return err

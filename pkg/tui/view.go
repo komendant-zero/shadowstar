@@ -75,7 +75,7 @@ func (t *TUI) renderHeader(w int) string {
 	sb.WriteString("┌" + strings.Repeat("─", w) + "┐\n")
 
 	// Title + Status Badge + Lang Badge
-	title := BrightCyan(Bold("⭐ SHADOWSTAR (SSP)")) + Dim(" • Anti-DPI Stealth Proxy v1.4.0")
+	title := BrightCyan(Bold("◈ SHADOWSTAR (SSP)")) + Dim(" • Anti-DPI Stealth Proxy v1.4.0")
 	
 	statusBadge := ""
 	if t.stats.Connected {
@@ -91,13 +91,10 @@ func (t *TUI) renderHeader(w int) string {
 		langBadge = Cyan("[RU|") + BrightYellow(Bold("EN")) + Cyan("]")
 	}
 
-	content := fmt.Sprintf(" %s   %s   %s", title, statusBadge, langBadge)
-	pad := w - VisibleLen(content)
-	if pad < 0 {
-		pad = 0
-	}
-	sb.WriteString("│" + content + strings.Repeat(" ", pad) + "│\n")
-	sb.WriteString("├" + strings.Repeat("─", w) + "┤")
+	left := fmt.Sprintf(" %s", title)
+	right := fmt.Sprintf("%s   %s ", statusBadge, langBadge)
+	sb.WriteString(t.formatLine(left, right, w))
+	sb.WriteString("\n├" + strings.Repeat("─", w) + "┤")
 	return sb.String()
 }
 
@@ -124,7 +121,7 @@ func (t *TUI) renderDashboard(w int) string {
 	}
 
 	l1Left := fmt.Sprintf(" %s %s%s (%s)",
-		Yellow("★ "+i18n.T("Активный узел:", "Active Node:")),
+		Yellow("● "+i18n.T("Активный узел:", "Active Node:")),
 		BrightCyan(Bold(countryStr+active.Name)),
 		Gray(""),
 		Cyan(active.ServerAddr),
@@ -144,27 +141,27 @@ func (t *TUI) renderDashboard(w int) string {
 		sysProxyStr = BrightGreen("[ACTIVE]")
 	}
 
-	l2Left := fmt.Sprintf(" %s TLS 1.3 Reality (%s) | Chunker: %s",
-		Magenta("🛡️ "+i18n.T("Защита:", "Shield:")),
+	l2Left := fmt.Sprintf(" %s Reality (%s) | Chunker: %s",
+		Magenta("◆ "+i18n.T("Защита:", "Shield:")),
 		BrightCyan(active.SNI),
 		chunkerStr,
 	)
-	l2Right := fmt.Sprintf("%s: %s ", i18n.T("Системный прокси", "System Proxy"), sysProxyStr)
+	l2Right := fmt.Sprintf("%s: %s ", i18n.T("Прокси", "Proxy"), sysProxyStr)
 	sb.WriteString(t.formatLine(l2Left, l2Right, w))
 	sb.WriteString("\n")
 
 	// Line 3: Live Speeds & Sparklines
-	sparkW := 14
+	sparkW := 12
 	if w > 90 {
-		sparkW = 20
+		sparkW = 18
 	}
 	upSpark := RenderSparkline(t.historyUp, 0, sparkW)
 	downSpark := RenderSparkline(t.historyDown, 0, sparkW)
 
-	l3Left := fmt.Sprintf(" ▲ UP: %s %s   ▼ DOWN: %s %s",
-		BrightYellow(PadRight(FormatSpeed(t.stats.SpeedUp), 10)),
+	l3Left := fmt.Sprintf(" ▲ UP: %s %s  ▼ DOWN: %s %s",
+		BrightYellow(PadRight(FormatSpeed(t.stats.SpeedUp), 9)),
 		Yellow(upSpark),
-		BrightGreen(PadRight(FormatSpeed(t.stats.SpeedDown), 10)),
+		BrightGreen(PadRight(FormatSpeed(t.stats.SpeedDown), 9)),
 		Green(downSpark),
 	)
 
@@ -177,15 +174,13 @@ func (t *TUI) renderDashboard(w int) string {
 	sb.WriteString("\n")
 
 	// Line 4: Inbounds & Total Traffic
-	l4Left := fmt.Sprintf(" %s SOCKS5 %s | HTTP %s",
-		Cyan("📡 "+i18n.T("Шлюз:", "Inbound:")),
-		BrightCyan(t.cfg.SocksAddr),
-		BrightCyan(t.cfg.HttpAddr),
+	l4Left := fmt.Sprintf(" %s :10808 (S5) | :10809 (HTTP)",
+		Cyan("► "+i18n.T("Шлюз:", "Inbound:")),
 	)
-	l4Right := fmt.Sprintf("▲ %s  ▼ %s  (%s: %d) ",
+	l4Right := fmt.Sprintf("▲ %s  ▼ %s (%s: %d) ",
 		FormatBytes(t.stats.BytesUp),
 		FormatBytes(t.stats.BytesDown),
-		i18n.T("Потоков", "Streams"),
+		i18n.T("Потоки", "Streams"),
 		t.stats.ActiveConns,
 	)
 	sb.WriteString(t.formatLine(l4Left, l4Right, w))
@@ -259,6 +254,27 @@ func (t *TUI) renderServersList(w, h int) string {
 		t.scrollOffset = t.selectedIdx - h + 1
 	}
 
+	// Fixed width columns:
+	// prefix: 2 (e.g. "▶ " or "  ")
+	// statusMark: 1 ("●" or "○")
+	// space: 1
+	// countryTag: 4 ("[NL]")
+	// space: 1
+	// Total prefix width = 9
+	// pingColW: 8 (e.g. "   38 ms")
+	// statusColW: 10 (e.g. " [АКТИВЕН]" or " [ACTIVE] " or 10 spaces)
+	statusColW := 10
+	pingColW := 8
+	fixedCols := 9 + pingColW + statusColW // 27 cols
+
+	rem := w - fixedCols
+	if rem < 30 {
+		rem = 30
+	}
+	nameColW := rem * 38 / 100
+	addrColW := rem * 32 / 100
+	sniColW := rem - nameColW - addrColW
+
 	// Render rows
 	for i := 0; i < h; i++ {
 		idx := t.scrollOffset + i
@@ -272,9 +288,14 @@ func (t *TUI) renderServersList(w, h int) string {
 		isActive := (s.ID == t.cfg.ActiveID)
 
 		// Status bullet
-		statusMark := "○"
+		prefix := "  "
+		if isSelected {
+			prefix = BrightCyan("▶ ")
+		}
+
+		statusMark := Gray("○")
 		if isActive {
-			statusMark = "●"
+			statusMark = BrightGreen("●")
 		}
 
 		// Country tag
@@ -283,64 +304,54 @@ func (t *TUI) renderServersList(w, h int) string {
 			countryTag = fmt.Sprintf("[%s]", s.Country)
 		}
 
+		// Node name
+		nameStr := PadRight(Truncate(s.Name, nameColW-1), nameColW)
+		if isSelected {
+			nameStr = BrightCyan(nameStr)
+		} else if isActive {
+			nameStr = White(nameStr)
+		} else {
+			nameStr = Gray(nameStr)
+		}
+
+		// Server address
+		addrStr := PadRight(Truncate(s.ServerAddr, addrColW-1), addrColW)
+		addrStr = Gray(addrStr)
+
+		// Camouflage SNI
+		sniStr := PadRight(Truncate(s.SNI, sniColW-1), sniColW)
+		sniStr = Dim(sniStr)
+
 		// Ping latency display
 		pingStr := "   -- ms"
 		if s.Ping > 0 {
 			if s.Ping < 60 {
-				pingStr = BrightGreen(fmt.Sprintf("%4d ms", s.Ping))
+				pingStr = BrightGreen(fmt.Sprintf("%5d ms", s.Ping))
 			} else if s.Ping < 120 {
-				pingStr = BrightYellow(fmt.Sprintf("%4d ms", s.Ping))
+				pingStr = BrightYellow(fmt.Sprintf("%5d ms", s.Ping))
 			} else {
-				pingStr = BrightRed(fmt.Sprintf("%4d ms", s.Ping))
+				pingStr = BrightRed(fmt.Sprintf("%5d ms", s.Ping))
 			}
 		}
 
-		prefix := "  "
-		if isSelected {
-			prefix = BrightCyan("▶ ")
-		}
-
-		activeTag := ""
+		// Active status badge
+		statusTag := strings.Repeat(" ", statusColW)
 		if isActive {
-			activeTag = BrightGreen(" [" + i18n.T("АКТИВЕН", "ACTIVE") + "]")
+			statusTag = BrightGreen(PadRight(i18n.T(" [АКТИВЕН]", " [ACTIVE]"), statusColW))
 		}
 
-		nameColW := 26
-		if w > 90 {
-			nameColW = 34
-		}
-		nameStr := PadRight(Truncate(s.Name, nameColW), nameColW)
-
-		addrColW := 22
-		if w > 90 {
-			addrColW = 26
-		}
-		addrStr := PadRight(Truncate(s.ServerAddr, addrColW), addrColW)
-
-		sniColW := 18
-		sniStr := PadRight(Truncate(s.SNI, sniColW), sniColW)
-
-		lineContent := fmt.Sprintf("%s%s %s %s  %s  %s  %s%s",
+		lineContent := fmt.Sprintf("%s%s %s %s%s%s%s%s",
 			prefix,
 			statusMark,
 			Cyan(countryTag),
-			BrightCyan(nameStr),
-			Gray(addrStr),
-			Dim(sniStr),
+			nameStr,
+			addrStr,
+			sniStr,
 			pingStr,
-			activeTag,
+			statusTag,
 		)
 
-		if isSelected {
-			// Highlight selected row with background or bold
-			lineContent = Bold(lineContent)
-		}
-
-		pad := w - VisibleLen(lineContent)
-		if pad < 0 {
-			pad = 0
-		}
-		sb.WriteString("│" + lineContent + strings.Repeat(" ", pad) + "│\n")
+		sb.WriteString("│" + FitLine(lineContent, w) + "│\n")
 	}
 
 	return strings.TrimRight(sb.String(), "\n")
@@ -387,12 +398,8 @@ func (t *TUI) renderLogs(w, h int) string {
 			logLine = Gray(logLine)
 		}
 
-		line := " " + Truncate(logLine, w-2)
-		pad := w - VisibleLen(line)
-		if pad < 0 {
-			pad = 0
-		}
-		sb.WriteString("│" + line + strings.Repeat(" ", pad) + "│\n")
+		line := " " + logLine
+		sb.WriteString("│" + FitLine(line, w) + "│\n")
 	}
 
 	return strings.TrimRight(sb.String(), "\n")
@@ -425,11 +432,7 @@ func (t *TUI) renderDiagnostics(w, h int) string {
 		if i < len(lines) {
 			line = lines[i]
 		}
-		pad := w - VisibleLen(line)
-		if pad < 0 {
-			pad = 0
-		}
-		sb.WriteString("│" + line + strings.Repeat(" ", pad) + "│\n")
+		sb.WriteString("│" + FitLine(line, w) + "│\n")
 	}
 
 	return strings.TrimRight(sb.String(), "\n")
@@ -441,18 +444,14 @@ func (t *TUI) renderToastLine(w int) string {
 
 	msg := ""
 	if t.toastTimer > 0 && t.toastMsg != "" {
-		msg = " ⚡ " + BrightYellow(Bold(t.toastMsg))
+		msg = " ✓ " + BrightYellow(Bold(t.toastMsg))
 	} else if t.isPingingAll {
-		msg = " ⌛ " + BrightCyan(i18n.T("Проверка задержки серверов...", "Pinging all servers concurrently..."))
+		msg = " ● " + BrightCyan(i18n.T("Проверка задержки серверов...", "Pinging all servers concurrently..."))
 	} else if t.isUpdatingSub {
-		msg = " ⌛ " + BrightCyan(i18n.T("Обновление подписки...", "Fetching subscription updates..."))
+		msg = " ● " + BrightCyan(i18n.T("Обновление подписки...", "Fetching subscription updates..."))
 	}
 
-	pad := w - VisibleLen(msg)
-	if pad < 0 {
-		pad = 0
-	}
-	sb.WriteString("│" + msg + strings.Repeat(" ", pad) + "│\n")
+	sb.WriteString("│" + FitLine(msg, w) + "│\n")
 	sb.WriteString("├" + strings.Repeat("─", w) + "┤")
 	return sb.String()
 }
@@ -461,19 +460,19 @@ func (t *TUI) renderFooter(w int) string {
 	var sb strings.Builder
 
 	cKey := BrightCyan("[C]")
-	cText := i18n.T("Подкл/Откл", "Connect/Disconnect")
-
-	pKey := BrightCyan("[P]")
-	pText := i18n.T("Пинг", "Ping All")
+	cText := i18n.T("Туннель", "Tunnel")
 
 	fKey := BrightCyan("[F]")
 	fText := i18n.T("Быстрый", "Fastest")
 
+	pKey := BrightCyan("[P]")
+	pText := i18n.T("Пинг", "Ping")
+
 	sKey := BrightCyan("[S]")
-	sText := i18n.T("Прокси", "SysProxy")
+	sText := i18n.T("Прокси", "Proxy")
 
 	aKey := BrightCyan("[A]")
-	aText := i18n.T("Добавить", "Add Node")
+	aText := i18n.T("Добавить", "Add")
 
 	dKey := BrightCyan("[D]")
 	dText := i18n.T("Удалить", "Delete")
@@ -487,35 +486,33 @@ func (t *TUI) renderFooter(w int) string {
 	qKey := BrightCyan("[Q]")
 	qText := i18n.T("Выход", "Quit")
 
-	line := fmt.Sprintf(" %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s",
-		cKey, cText,
-		fKey, fText,
-		pKey, pText,
-		sKey, sText,
-		aKey, aText,
-		dKey, dText,
-		uKey, uText,
-		tabKey, tabText,
-		qKey, qText,
-	)
-
-	pad := w - VisibleLen(line)
-	if pad < 0 {
-		pad = 0
+	var items []string
+	items = append(items, cKey+" "+cText)
+	items = append(items, fKey+" "+fText)
+	items = append(items, pKey+" "+pText)
+	items = append(items, sKey+" "+sText)
+	items = append(items, aKey+" "+aText)
+	if w >= 88 {
+		items = append(items, dKey+" "+dText)
+		items = append(items, uKey+" "+uText)
 	}
-	sb.WriteString("│" + line + strings.Repeat(" ", pad) + "│\n")
+	items = append(items, tabKey+" "+tabText)
+	items = append(items, qKey+" "+qText)
+
+	line := " " + strings.Join(items, " ")
+	sb.WriteString("│" + FitLine(line, w) + "│\n")
 	sb.WriteString("└" + strings.Repeat("─", w) + "┘")
 	return sb.String()
 }
 
 func (t *TUI) formatLine(left, right string, w int) string {
-	lLen := VisibleLen(left)
 	rLen := VisibleLen(right)
-	pad := w - lLen - rLen
-	if pad < 0 {
-		pad = 0
+	maxLeft := w - rLen
+	if maxLeft < 0 {
+		return "│" + FitLine(right, w) + "│"
 	}
-	return "│" + left + strings.Repeat(" ", pad) + right + "│"
+	left = FitLine(left, maxLeft)
+	return "│" + left + right + "│"
 }
 
 func (t *TUI) overlayModal(bg string, totalW, totalH int) string {

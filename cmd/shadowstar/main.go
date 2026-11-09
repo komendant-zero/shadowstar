@@ -14,6 +14,7 @@ import (
 	"github.com/shadowstar/shadowstar/pkg/gui"
 	"github.com/shadowstar/shadowstar/pkg/nativegui"
 	"github.com/shadowstar/shadowstar/pkg/sysproxy"
+	"github.com/shadowstar/shadowstar/pkg/updater"
 )
 
 var (
@@ -21,6 +22,8 @@ var (
 )
 
 func main() {
+	updater.CleanupOldFiles()
+
 	configPath := flag.String("c", "shadowstar-client.json", "Path to client config file")
 	headless := flag.Bool("headless", false, "Run in headless CLI mode without opening GUI window")
 	useWeb := flag.Bool("web", false, "Launch optional web browser GUI")
@@ -37,16 +40,35 @@ func main() {
 		return
 	}
 
-	// Resolve absolute path for config
+	exeDir := ""
+	if exe, err := os.Executable(); err == nil {
+		exeDir = filepath.Dir(exe)
+	}
+
+	// Smart config resolution: prioritize user's personal config if present
 	absCfg := *configPath
-	if !filepath.IsAbs(absCfg) {
-		if _, err := os.Stat(absCfg); os.IsNotExist(err) {
-			// Check next to executable
-			if exe, err := os.Executable(); err == nil {
-				exeDirCfg := filepath.Join(filepath.Dir(exe), *configPath)
-				if _, err := os.Stat(exeDirCfg); err == nil {
-					absCfg = exeDirCfg
-				}
+	if *configPath == "shadowstar-client.json" {
+		candidates := []string{
+			filepath.Join(exeDir, "shadowstar-client.personal.json"),
+			"shadowstar-client.personal.json",
+			filepath.Join(exeDir, "shadowstar-client.json"),
+			"shadowstar-client.json",
+			filepath.Join(os.Getenv("APPDATA"), "ShadowStar", "shadowstar-client.json"),
+		}
+		for _, cand := range candidates {
+			if cand == "" {
+				continue
+			}
+			if fi, err := os.Stat(cand); err == nil && !fi.IsDir() {
+				absCfg = cand
+				break
+			}
+		}
+	} else if !filepath.IsAbs(absCfg) {
+		if _, err := os.Stat(absCfg); os.IsNotExist(err) && exeDir != "" {
+			exeDirCfg := filepath.Join(exeDir, absCfg)
+			if _, err := os.Stat(exeDirCfg); err == nil {
+				absCfg = exeDirCfg
 			}
 		}
 	}
@@ -58,6 +80,38 @@ func main() {
 			SocksAddr: "127.0.0.1:10808",
 			HttpAddr:  "127.0.0.1:10809",
 			Servers:   []client.ServerProfile{},
+		}
+	}
+
+	// Fallback to personal config if active config has no real servers
+	hasRealServers := false
+	for _, s := range cfg.Servers {
+		if s.ServerAddr != "" && s.ServerAddr != "your-server-ip.com:4433" && s.ServerAddr != "127.0.0.1:8443" {
+			hasRealServers = true
+			break
+		}
+	}
+	if !hasRealServers {
+		personalCandidates := []string{
+			filepath.Join(exeDir, "shadowstar-client.personal.json"),
+			"shadowstar-client.personal.json",
+		}
+		for _, pCand := range personalCandidates {
+			if fi, err := os.Stat(pCand); err == nil && !fi.IsDir() {
+				if pCfg, pErr := config.LoadClientConfig(pCand); pErr == nil && len(pCfg.Servers) > 0 {
+					for _, ps := range pCfg.Servers {
+						if ps.ServerAddr != "" && ps.ServerAddr != "your-server-ip.com:4433" && ps.ServerAddr != "127.0.0.1:8443" {
+							cfg = pCfg
+							absCfg, _ = filepath.Abs(pCand)
+							hasRealServers = true
+							break
+						}
+					}
+					if hasRealServers {
+						break
+					}
+				}
+			}
 		}
 	}
 

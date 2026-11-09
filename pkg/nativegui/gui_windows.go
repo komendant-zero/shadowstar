@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -215,6 +216,8 @@ const (
 	HitModalAddInput4
 	HitModalAddPaste
 	HitModalAddSubmit
+	HitModalTabKey
+	HitModalTabFull
 	HitModalUpdateDownload
 	// Dynamic ranges
 	HitServerBaseSelect = 1000
@@ -258,17 +261,21 @@ type AppState struct {
 	activeModal   int
 	focusedField  int
 	cursorVisible bool
+	addServerMode int    // 0 = By Key / Link, 1 = Full Details
 	modalInput1   string // Sub URL / Name
-	modalInput2   string // Server Addr
+	modalInput2   string // Server Addr / Key
 	modalInput3   string // Master Key
 	modalInput4   string // SNI
 	modalErrorMsg string
 	editServerIdx int
 
 	// Update State (GitHub Releases)
-	hasUpdate      bool
-	updateInfo     *updater.ReleaseInfo
-	checkingUpdate bool
+	hasUpdate       bool
+	updateInfo      *updater.ReleaseInfo
+	checkingUpdate  bool
+	updatingApp     bool
+	updateProgress  int
+	updateStatusMsg string
 
 	// Telemetry
 	speedDown     uint64
@@ -1662,7 +1669,10 @@ func (app *AppState) renderSubscriptionModal(hdc, graphics uintptr, w, h int32) 
 
 func (app *AppState) renderAddServerModal(hdc, graphics uintptr, w, h int32) {
 	mW := int32(520)
-	mH := int32(430)
+	mH := int32(370)
+	if app.addServerMode == 1 {
+		mH = 430
+	}
 	mX := (w - mW) / 2
 	mY := (h - mH) / 2
 
@@ -1670,11 +1680,11 @@ func (app *AppState) renderAddServerModal(hdc, graphics uintptr, w, h int32) {
 	drawSmoothCard(graphics, mX, mY, mW, mH, 14, 0xFF101726, 0xFF00E5FF, 1.2)
 
 	// Header: Icon + Title
-	drawText(hdc, i18n.T("➕ Добавление узла ShadowStar", "➕ Add ShadowStar Node"), mX+24, mY+18, 380, 24, app.hFontHeader, 0x00FCFAF8, 0x0020)
+	drawText(hdc, i18n.T("➕ Добавление узла ShadowStar", "➕ Add ShadowStar Node"), mX+24, mY+16, 380, 24, app.hFontHeader, 0x00FCFAF8, 0x0020)
 
 	// Close Button ✕
 	closeX := mX + mW - 44
-	closeY := mY + 16
+	closeY := mY + 14
 	closeColor := uint32(0x0094A3B8)
 	if app.hoverElement == HitModalClose {
 		closeColor = 0x004444EF
@@ -1683,6 +1693,42 @@ func (app *AppState) renderAddServerModal(hdc, graphics uintptr, w, h int32) {
 
 	inW := mW - 48
 	inH := int32(32)
+
+	// --- Segmented Mode Tabs: [ 🔑 По ключу / ссылке ] [ ⚙️ Полные данные ] ---
+	tabW := (inW - 8) / 2
+	tabY := mY + 48
+	tabH := int32(28)
+
+	// Mode 0 Tab
+	t1Bg := uint32(0xFF141C2B)
+	t1Border := uint32(0xFF283954)
+	t1Color := uint32(0x0094A3B8)
+	if app.addServerMode == 0 {
+		t1Bg = 0xFF1C283C
+		t1Border = 0xFF00E5FF
+		t1Color = 0x0000E5FF
+	} else if app.hoverElement == HitModalTabKey {
+		t1Bg = 0xFF182234
+		t1Border = 0xFF3B82F6
+	}
+	drawSmoothCard(graphics, mX+24, tabY, tabW, tabH, 6, t1Bg, t1Border, 1.0)
+	drawText(hdc, i18n.T("🔑 По ключу / ссылке", "🔑 By Key / Link"), mX+24, tabY, tabW, tabH, app.hFontButton, t1Color, 0x0025)
+
+	// Mode 1 Tab
+	t2X := mX + 24 + tabW + 8
+	t2Bg := uint32(0xFF141C2B)
+	t2Border := uint32(0xFF283954)
+	t2Color := uint32(0x0094A3B8)
+	if app.addServerMode == 1 {
+		t2Bg = 0xFF1C283C
+		t2Border = 0xFF00E5FF
+		t2Color = 0x0000E5FF
+	} else if app.hoverElement == HitModalTabFull {
+		t2Bg = 0xFF182234
+		t2Border = 0xFF3B82F6
+	}
+	drawSmoothCard(graphics, t2X, tabY, tabW, tabH, 6, t2Bg, t2Border, 1.0)
+	drawText(hdc, i18n.T("⚙️ Полные данные", "⚙️ Full Details"), t2X, tabY, tabW, tabH, app.hFontButton, t2Color, 0x0025)
 
 	renderInput := func(label string, val string, fIdx int, y int32, placeholder string) {
 		drawText(hdc, label, mX+24, y-18, inW, 16, app.hFontTiny, 0x0094A3B8, 0x0020)
@@ -1705,27 +1751,52 @@ func (app *AppState) renderAddServerModal(hdc, graphics uintptr, w, h int32) {
 		}
 	}
 
-	renderInput(i18n.T("Название узла:", "Node Name:"), app.modalInput1, 1, mY+68, i18n.T("Например: VPS Нидерланды #1", "e.g.: VPS Netherlands #1"))
-	renderInput(i18n.T("Адрес и порт сервера (IP:Port):", "Server Address (IP:Port):"), app.modalInput2, 2, mY+132, "185.120.40.10:4433")
-	renderInput(i18n.T("Мастер-ключ безопасности:", "Security Master Key:"), app.modalInput3, 3, mY+196, i18n.T("Секретный токен узла", "Secret node master key"))
-	renderInput(i18n.T("Маскировка SNI (Decoy Domain):", "SNI Masking (Decoy Domain):"), app.modalInput4, 4, mY+260, "www.microsoft.com")
+	if app.addServerMode == 0 {
+		// MODE 0: QUICK ADD BY KEY OR LINK
+		renderInput(i18n.T("Название узла:", "Node Name:"), app.modalInput1, 1, mY+108, i18n.T("Например: Мой VPS (или оставьте пустым)", "e.g. My VPS (or leave blank)"))
+		renderInput(i18n.T("Ключ или ссылка shadowstar://", "Key or shadowstar:// link:"), app.modalInput2, 2, mY+170, "shadowstar://... или IP:Port:Key или 32-байтный hex ключ")
 
-	// Quick action: paste shadowstar:// link
-	pasteX := mX + 24
-	pasteY := mY + 306
-	pasteW := int32(245)
-	pasteH := int32(28)
-	pasteBg := uint32(0xFF162032)
-	pasteBorder := uint32(0xFF283954)
-	if app.hoverElement == HitModalAddPaste {
-		pasteBg = 0xFF223048
-		pasteBorder = 0xFF00E5FF
-	}
-	drawSmoothCard(graphics, pasteX, pasteY, pasteW, pasteH, 6, pasteBg, pasteBorder, 1.0)
-	drawText(hdc, i18n.T("📋 Вставить ссылку shadowstar://", "📋 Paste shadowstar:// URI"), pasteX, pasteY, pasteW, pasteH, app.hFontSmall, 0x00CBD5E1, 0x0025)
+		drawText(hdc, i18n.T("✓ Введите ключ сервера или готовую ссылку (IP подставится автоматически)", "✓ Enter master key or link (IP will auto-populate)"), mX+24, mY+208, inW, 16, app.hFontTiny, 0x0000E5FF, 0x0020)
 
-	if app.modalErrorMsg != "" {
-		drawText(hdc, app.modalErrorMsg, pasteX+pasteW+15, pasteY+4, inW-pasteW-20, 22, app.hFontSmall, 0x004444EF, 0x0020)
+		pasteX := mX + 24
+		pasteY := mY + 232
+		pasteW := int32(230)
+		pasteH := int32(28)
+		pasteBg := uint32(0xFF162032)
+		pasteBorder := uint32(0xFF283954)
+		if app.hoverElement == HitModalAddPaste {
+			pasteBg = 0xFF223048
+			pasteBorder = 0xFF00E5FF
+		}
+		drawSmoothCard(graphics, pasteX, pasteY, pasteW, pasteH, 6, pasteBg, pasteBorder, 1.0)
+		drawText(hdc, i18n.T("📋 Вставить из буфера", "📋 Paste from clipboard"), pasteX, pasteY, pasteW, pasteH, app.hFontSmall, 0x00CBD5E1, 0x0025)
+
+		if app.modalErrorMsg != "" {
+			drawText(hdc, app.modalErrorMsg, pasteX+pasteW+15, pasteY+4, inW-pasteW-20, 22, app.hFontSmall, 0x004444EF, 0x0020)
+		}
+	} else {
+		// MODE 1: FULL SERVER DETAILS
+		renderInput(i18n.T("Название узла:", "Node Name:"), app.modalInput1, 1, mY+104, i18n.T("Например: VPS Нидерланды #1", "e.g.: VPS Netherlands #1"))
+		renderInput(i18n.T("Адрес и порт сервера (IP:Port):", "Server Address (IP:Port):"), app.modalInput2, 2, mY+160, "185.120.40.10:4433")
+		renderInput(i18n.T("Мастер-ключ безопасности:", "Security Master Key:"), app.modalInput3, 3, mY+216, i18n.T("Секретный токен узла", "Secret node master key"))
+		renderInput(i18n.T("Маскировка SNI (Decoy Domain):", "SNI Masking (Decoy Domain):"), app.modalInput4, 4, mY+272, "www.microsoft.com")
+
+		pasteX := mX + 24
+		pasteY := mY + 314
+		pasteW := int32(245)
+		pasteH := int32(28)
+		pasteBg := uint32(0xFF162032)
+		pasteBorder := uint32(0xFF283954)
+		if app.hoverElement == HitModalAddPaste {
+			pasteBg = 0xFF223048
+			pasteBorder = 0xFF00E5FF
+		}
+		drawSmoothCard(graphics, pasteX, pasteY, pasteW, pasteH, 6, pasteBg, pasteBorder, 1.0)
+		drawText(hdc, i18n.T("📋 Вставить ссылку shadowstar://", "📋 Paste shadowstar:// URI"), pasteX, pasteY, pasteW, pasteH, app.hFontSmall, 0x00CBD5E1, 0x0025)
+
+		if app.modalErrorMsg != "" {
+			drawText(hdc, app.modalErrorMsg, pasteX+pasteW+15, pasteY+4, inW-pasteW-20, 22, app.hFontSmall, 0x004444EF, 0x0020)
+		}
 	}
 
 	// Bottom Buttons
@@ -1734,7 +1805,7 @@ func (app *AppState) renderAddServerModal(hdc, graphics uintptr, w, h int32) {
 	saveBtnH := int32(38)
 	saveBtnX := mX + mW - 24 - saveBtnW
 	drawSmoothCard(graphics, saveBtnX, btnRowY, saveBtnW, saveBtnH, 8, 0xFF10B981, 0xFF059669, 1.2)
-	drawText(hdc, i18n.T("✓ Сохранить узел", "✓ Add Server"), saveBtnX, btnRowY, saveBtnW, saveBtnH, app.hFontButton, 0x00FCFAF8, 0x0025)
+	drawText(hdc, i18n.T("✓ Добавить узел", "✓ Add Server"), saveBtnX, btnRowY, saveBtnW, saveBtnH, app.hFontButton, 0x00FCFAF8, 0x0025)
 
 	cancelW := int32(100)
 	cancelX := saveBtnX - 10 - cancelW
@@ -1838,7 +1909,7 @@ func (app *AppState) renderEditServerModal(hdc, graphics uintptr, w, h int32) {
 
 func (app *AppState) renderUpdateModal(hdc, graphics uintptr, w, h int32) {
 	mW := int32(520)
-	mH := int32(320)
+	mH := int32(330)
 	mX := (w - mW) / 2
 	mY := (h - mH) / 2
 
@@ -1846,90 +1917,150 @@ func (app *AppState) renderUpdateModal(hdc, graphics uintptr, w, h int32) {
 	drawSmoothCard(graphics, mX, mY, mW, mH, 14, 0xFF101726, 0xFFF59E0B, 1.4)
 
 	// Header: Icon + Title
-	title := i18n.T("⚡ Доступно обновление ShadowStar!", "⚡ ShadowStar Update Available!")
+	title := i18n.T("⚡ Обновление ShadowStar", "⚡ ShadowStar Update")
 	drawText(hdc, title, mX+24, mY+20, 420, 24, app.hFontHeader, 0x000B9EF5, 0x0020)
 
-	// Close Button ✕
-	closeX := mX + mW - 44
-	closeY := mY + 16
-	closeColor := uint32(0x0094A3B8)
-	if app.hoverElement == HitModalClose {
-		closeColor = 0x004444EF
-	}
-	drawText(hdc, "✕", closeX, closeY, 28, 28, app.hFontHeader, closeColor, 0x0025)
-
 	app.mu.Lock()
+	isUpdating := app.updatingApp
+	pct := app.updateProgress
+	statusTxt := app.updateStatusMsg
 	info := app.updateInfo
+	errMsg := app.modalErrorMsg
 	app.mu.Unlock()
+
+	// Close Button ✕ (disabled while downloading)
+	if !isUpdating {
+		closeX := mX + mW - 44
+		closeY := mY + 16
+		closeColor := uint32(0x0094A3B8)
+		if app.hoverElement == HitModalClose {
+			closeColor = 0x004444EF
+		}
+		drawText(hdc, "✕", closeX, closeY, 28, 28, app.hFontHeader, closeColor, 0x0025)
+	}
 
 	tag := "v1.3.0"
 	pub := "GitHub Releases"
-	notes := i18n.T("Вышла новая версия приложения с улучшениями стабильности и новыми функциями.", "A new version with performance and stability improvements is available.")
+	notes := i18n.T("Улучшения стабильности, обход блокировок и поддержка мультисерверов.", "Stability improvements, anti-DPI bypass, and multi-server subscriptions.")
 	if info != nil {
 		if info.TagName != "" {
 			tag = info.TagName
 		}
 		if info.PublishedAt != "" {
 			pub = info.PublishedAt
-			if len(pub) > 10 {
-				pub = pub[:10]
-			}
 		}
 		if info.Body != "" {
 			notes = strings.ReplaceAll(info.Body, "\r\n", " ")
 			notes = strings.ReplaceAll(notes, "\n", " ")
-			if len(notes) > 180 {
-				notes = notes[:177] + "..."
+			if len(notes) > 175 {
+				notes = notes[:172] + "..."
 			}
 		}
 	}
 
 	boxY := mY + 58
-	boxH := int32(160)
+	boxH := int32(165)
 	drawSmoothCard(graphics, mX+24, boxY, mW-48, boxH, 8, 0xFF141C2B, 0xFF283954, 1.0)
 
 	curVerStr := fmt.Sprintf("%s: %s   ➔   %s: %s",
-		i18n.T("Текущая версия", "Current version"), updater.CurrentVersion,
-		i18n.T("Новая версия", "New version"), tag)
+		i18n.T("Установлено", "Installed"), updater.CurrentVersion,
+		i18n.T("Версия релиза", "Release version"), tag)
 	drawText(hdc, curVerStr, mX+38, boxY+14, mW-76, 20, app.hFontTitle, 0x0000E5FF, 0x0020)
 
 	pubStr := fmt.Sprintf("%s: %s", i18n.T("Дата релиза", "Release date"), pub)
-	drawText(hdc, pubStr, mX+38, boxY+40, mW-76, 16, app.hFontSmall, 0x0094A3B8, 0x0020)
+	drawText(hdc, pubStr, mX+38, boxY+38, mW-76, 16, app.hFontSmall, 0x0094A3B8, 0x0020)
 
-	drawText(hdc, i18n.T("Описание изменений:", "Changelog:"), mX+38, boxY+70, mW-76, 16, app.hFontSmall, 0x00CBD5E1, 0x0020)
-	drawText(hdc, notes, mX+38, boxY+92, mW-76, 50, app.hFontSmall, 0x0094A3B8, 0x0020)
+	drawText(hdc, i18n.T("Что нового:", "Changelog:"), mX+38, boxY+64, mW-76, 16, app.hFontSmall, 0x00CBD5E1, 0x0020)
+	drawText(hdc, notes, mX+38, boxY+84, mW-76, 44, app.hFontSmall, 0x0094A3B8, 0x0020)
 
-	// Buttons
+	if errMsg != "" {
+		drawText(hdc, errMsg, mX+38, boxY+132, mW-76, 22, app.hFontSmall, 0x004444EF, 0x0020)
+	}
+
+	// Buttons or Progress bar
 	btnRowY := mY + mH - 52
-	dlBtnW := int32(220)
-	dlBtnH := int32(38)
-	dlBtnX := mX + mW - 24 - dlBtnW
-	dlBg := uint32(0xFF10B981)
-	dlBorder := uint32(0xFF059669)
-	if app.hoverElement == HitModalUpdateDownload {
-		dlBg = 0xFF059669
-		dlBorder = 0xFF00E5FF
-	}
-	drawSmoothCard(graphics, dlBtnX, btnRowY, dlBtnW, dlBtnH, 8, dlBg, dlBorder, 1.2)
-	drawText(hdc, i18n.T("⬇ Скачать обновление", "⬇ Download Update"), dlBtnX, btnRowY, dlBtnW, dlBtnH, app.hFontButton, 0x00FCFAF8, 0x0025)
+	if isUpdating {
+		trackW := mW - 48
+		trackH := int32(28)
+		trackX := mX + 24
+		trackY := btnRowY + 4
+		drawSmoothCard(graphics, trackX, trackY, trackW, trackH, 6, 0xFF141C2B, 0xFF283954, 1.0)
 
-	cancelW := int32(110)
-	cancelX := dlBtnX - 12 - cancelW
-	cancelBg := uint32(0xFF162032)
-	cancelBorder := uint32(0xFF283954)
-	if app.hoverElement == HitModalCancel {
-		cancelBg = 0xFF223048
-		cancelBorder = 0xFF00E5FF
+		fillW := int32(float64(trackW) * float64(pct) / 100.0)
+		if fillW > trackW {
+			fillW = trackW
+		}
+		if fillW > 6 {
+			drawSmoothCard(graphics, trackX, trackY, fillW, trackH, 6, 0xFF10B981, 0xFF059669, 1.0)
+		}
+		drawText(hdc, statusTxt, trackX, trackY, trackW, trackH, app.hFontButton, 0x00FCFAF8, 0x0025)
+	} else {
+		dlBtnW := int32(240)
+		dlBtnH := int32(38)
+		dlBtnX := mX + mW - 24 - dlBtnW
+		dlBg := uint32(0xFF10B981)
+		dlBorder := uint32(0xFF059669)
+		if app.hoverElement == HitModalUpdateDownload {
+			dlBg = 0xFF059669
+			dlBorder = 0xFF00E5FF
+		}
+		drawSmoothCard(graphics, dlBtnX, btnRowY, dlBtnW, dlBtnH, 8, dlBg, dlBorder, 1.2)
+		drawText(hdc, i18n.T("⚡ Обновить и перезапустить", "⚡ Update & Restart"), dlBtnX, btnRowY, dlBtnW, dlBtnH, app.hFontButton, 0x00FCFAF8, 0x0025)
+
+		cancelW := int32(110)
+		cancelX := dlBtnX - 12 - cancelW
+		cancelBg := uint32(0xFF162032)
+		cancelBorder := uint32(0xFF283954)
+		if app.hoverElement == HitModalCancel {
+			cancelBg = 0xFF223048
+			cancelBorder = 0xFF00E5FF
+		}
+		drawSmoothCard(graphics, cancelX, btnRowY, cancelW, dlBtnH, 8, cancelBg, cancelBorder, 1.0)
+		drawText(hdc, i18n.T("Закрыть", "Close"), cancelX, btnRowY, cancelW, dlBtnH, app.hFontButton, 0x0094A3B8, 0x0025)
 	}
-	drawSmoothCard(graphics, cancelX, btnRowY, cancelW, dlBtnH, 8, cancelBg, cancelBorder, 1.0)
-	drawText(hdc, i18n.T("Позже", "Later"), cancelX, btnRowY, cancelW, dlBtnH, app.hFontButton, 0x0094A3B8, 0x0025)
 }
 
 func (app *AppState) openUpdateModal() {
 	app.mu.Lock()
 	app.activeModal = ModalUpdate
+	app.modalErrorMsg = ""
 	app.mu.Unlock()
 	pInvalidateRect.Call(app.hwndMain, 0, 0)
+}
+
+func (app *AppState) runSelfUpdate() {
+	app.mu.Lock()
+	if app.updatingApp {
+		app.mu.Unlock()
+		return
+	}
+	app.updatingApp = true
+	app.updateProgress = 10
+	app.updateStatusMsg = i18n.T("Поиск обновления на GitHub...", "Checking GitHub...")
+	app.modalErrorMsg = ""
+	dlURL := ""
+	if app.updateInfo != nil {
+		dlURL = app.updateInfo.DownloadURL
+	}
+	app.mu.Unlock()
+	pInvalidateRect.Call(app.hwndMain, 0, 0)
+
+	err := updater.DownloadAndApplyUpdate(dlURL, func(pct int, status string) {
+		app.mu.Lock()
+		app.updateProgress = pct
+		app.updateStatusMsg = status
+		app.mu.Unlock()
+		pInvalidateRect.Call(app.hwndMain, 0, 0)
+	})
+
+	if err != nil {
+		app.mu.Lock()
+		app.updatingApp = false
+		app.modalErrorMsg = i18n.T("Ошибка: ", "Error: ") + err.Error()
+		app.mu.Unlock()
+		app.showToast(i18n.T("❌ Ошибка обновления", "❌ Update failed"))
+		pInvalidateRect.Call(app.hwndMain, 0, 0)
+	}
 }
 
 func (app *AppState) checkGitHubUpdate(showToast bool) {
@@ -1958,16 +2089,16 @@ func (app *AppState) checkGitHubUpdate(showToast bool) {
 
 	app.mu.Lock()
 	app.updateInfo = rel
-	app.hasUpdate = (rel != nil)
+	app.hasUpdate = (rel != nil && rel.IsNewer)
 	app.mu.Unlock()
 
 	pInvalidateRect.Call(app.hwndMain, 0, 0)
 
-	if rel != nil {
+	if rel != nil && rel.IsNewer {
 		app.showToast(fmt.Sprintf(i18n.T("Доступна новая версия %s!", "New version %s is available!"), rel.TagName))
 		app.openUpdateModal()
 	} else if showToast {
-		app.showToast(i18n.T("У вас последняя версия!", "You have the latest version!"))
+		app.openUpdateModal()
 	}
 }
 
@@ -1984,6 +2115,7 @@ func (app *AppState) openSubscriptionModal() {
 func (app *AppState) openAddServerModal() {
 	app.mu.Lock()
 	app.activeModal = ModalAddServer
+	app.addServerMode = 0
 	app.focusedField = 1
 	app.modalInput1 = ""
 	app.modalInput2 = ""
@@ -2002,6 +2134,7 @@ func (app *AppState) openEditServerModal(idx int) {
 	}
 	s := app.cfg.Servers[idx]
 	app.activeModal = ModalEditServer
+	app.addServerMode = 1
 	app.editServerIdx = idx
 	app.focusedField = 1
 	app.modalInput1 = s.Name
@@ -2090,7 +2223,26 @@ func (app *AppState) handleModalPaste() {
 	if app.activeModal == ModalSubscription {
 		app.modalInput1 = text
 	} else if app.activeModal == ModalAddServer || app.activeModal == ModalEditServer {
-		// If pasted full shadowstar:// link, auto-populate all fields!
+		if app.activeModal == ModalAddServer && app.addServerMode == 0 {
+			if strings.HasPrefix(text, "shadowstar://") {
+				prof, err := config.DecodeURIToProfile(text)
+				if err == nil && prof != nil {
+					if app.modalInput1 == "" && prof.Name != "" {
+						app.modalInput1 = prof.Name
+					}
+					app.modalInput2 = text
+					return
+				}
+			}
+			if app.focusedField == 1 && !strings.Contains(text, "@") && !strings.Contains(text, ":") && len(text) < 40 {
+				app.modalInput1 = text
+			} else {
+				app.modalInput2 = text
+			}
+			return
+		}
+
+		// Mode 1: If pasted full shadowstar:// link, auto-populate all fields!
 		if strings.HasPrefix(text, "shadowstar://") {
 			prof, err := config.DecodeURIToProfile(text)
 			if err == nil && prof != nil {
@@ -2112,6 +2264,8 @@ func (app *AppState) handleModalPaste() {
 			app.modalInput3 = text
 		case 4:
 			app.modalInput4 = text
+		default:
+			app.modalInput2 = text
 		}
 	}
 }
@@ -2121,7 +2275,7 @@ func (app *AppState) submitModal() {
 	if app.activeModal == ModalSubscription {
 		val := strings.TrimSpace(app.modalInput1)
 		if val == "" {
-			app.modalErrorMsg = "Введите корректный URL!"
+			app.modalErrorMsg = i18n.T("Введите корректный URL!", "Enter valid URL!")
 			app.mu.Unlock()
 			return
 		}
@@ -2129,48 +2283,140 @@ func (app *AppState) submitModal() {
 		_ = config.SaveClientConfig(app.cfgPath, app.cfg)
 		app.activeModal = ModalNone
 		app.mu.Unlock()
-		app.showToast("✓ URL сохранен! Загружаем...")
+		app.showToast(i18n.T("✓ URL сохранен! Загружаем...", "✓ URL saved! Loading..."))
 		go app.updateSubscriptionFromURL()
 		return
 	} else if app.activeModal == ModalAddServer {
-		name := strings.TrimSpace(app.modalInput1)
-		addr := strings.TrimSpace(app.modalInput2)
-		key := strings.TrimSpace(app.modalInput3)
-		sni := strings.TrimSpace(app.modalInput4)
+		var prof *client.ServerProfile
 
-		if addr == "" || key == "" {
-			app.modalErrorMsg = "Заполните адрес и мастер-ключ!"
-			app.mu.Unlock()
-			return
-		}
-		if name == "" {
-			name = addr
-		}
-		if sni == "" {
-			sni = "www.microsoft.com"
-		}
-		cCode, _ := config.DetectCountry(name, addr)
+		if app.addServerMode == 0 {
+			// Mode 0: Quick Add by Key or Link
+			rawName := strings.TrimSpace(app.modalInput1)
+			rawKey := strings.TrimSpace(app.modalInput2)
 
-		newProf := client.ServerProfile{
-			ID:            fmt.Sprintf("node-%d", time.Now().UnixNano()),
-			Name:          name,
-			ServerAddr:    addr,
-			MasterKey:     key,
-			SNI:           sni,
-			EnableChunker: true,
-			Country:       cCode,
+			if rawKey == "" {
+				app.modalErrorMsg = i18n.T("Введите ключ или ссылку!", "Enter key or link!")
+				app.mu.Unlock()
+				return
+			}
+
+			if strings.HasPrefix(rawKey, "shadowstar://") {
+				p, err := config.DecodeURIToProfile(rawKey)
+				if err != nil {
+					app.modalErrorMsg = i18n.T("Неверный формат ссылки: ", "Invalid link: ") + err.Error()
+					app.mu.Unlock()
+					return
+				}
+				prof = p
+			} else if strings.Contains(rawKey, "@") {
+				parts := strings.Split(rawKey, "@")
+				prof = &client.ServerProfile{
+					MasterKey:  strings.TrimSpace(parts[0]),
+					ServerAddr: strings.TrimSpace(parts[1]),
+					SNI:        "www.microsoft.com",
+				}
+			} else if strings.Count(rawKey, ":") >= 2 {
+				parts := strings.Split(rawKey, ":")
+				prof = &client.ServerProfile{
+					ServerAddr: parts[0] + ":" + parts[1],
+					MasterKey:  parts[2],
+					SNI:        "www.microsoft.com",
+				}
+			} else {
+				// Master key only!
+				defaultAddr := "demo-node.shadowstar.org:4433"
+				for _, s := range app.cfg.Servers {
+					if s.ServerAddr != "" && s.ServerAddr != "your-server-ip.com:4433" && s.ServerAddr != "127.0.0.1:8443" {
+						defaultAddr = s.ServerAddr
+						break
+					}
+				}
+				prof = &client.ServerProfile{
+					MasterKey:  rawKey,
+					ServerAddr: defaultAddr,
+					SNI:        "www.microsoft.com",
+				}
+			}
+
+			if rawName != "" {
+				prof.Name = rawName
+			} else if prof.Name == "" {
+				hostPart := prof.ServerAddr
+				if idx := strings.Index(hostPart, ":"); idx != -1 {
+					hostPart = hostPart[:idx]
+				}
+				prof.Name = "Node " + hostPart
+			}
+		} else {
+			// Mode 1: Full Details
+			name := strings.TrimSpace(app.modalInput1)
+			addr := strings.TrimSpace(app.modalInput2)
+			key := strings.TrimSpace(app.modalInput3)
+			sni := strings.TrimSpace(app.modalInput4)
+
+			if key == "" {
+				app.modalErrorMsg = i18n.T("Введите мастер-ключ безопасности!", "Enter security master key!")
+				app.mu.Unlock()
+				return
+			}
+
+			if addr == "" {
+				if strings.Contains(key, "@") {
+					parts := strings.Split(key, "@")
+					key = strings.TrimSpace(parts[0])
+					addr = strings.TrimSpace(parts[1])
+				} else if strings.Count(key, ":") >= 2 {
+					parts := strings.Split(key, ":")
+					addr = parts[0] + ":" + parts[1]
+					key = parts[2]
+				} else {
+					for _, s := range app.cfg.Servers {
+						if s.ServerAddr != "" && s.ServerAddr != "your-server-ip.com:4433" && s.ServerAddr != "127.0.0.1:8443" {
+							addr = s.ServerAddr
+							break
+						}
+					}
+					if addr == "" {
+						addr = "demo-node.shadowstar.org:4433"
+					}
+				}
+			}
+
+			if name == "" {
+				name = "Node " + addr
+			}
+			if sni == "" {
+				sni = "www.microsoft.com"
+			}
+			prof = &client.ServerProfile{
+				Name:       name,
+				ServerAddr: addr,
+				MasterKey:  key,
+				SNI:        sni,
+			}
 		}
 
-		app.cfg.Servers = append(app.cfg.Servers, newProf)
-		app.cfg.ActiveID = newProf.ID
-		app.client.UpdateProfile(newProf)
+		if prof.SNI == "" {
+			prof.SNI = "www.microsoft.com"
+		}
+		prof.EnableChunker = true
+		cCode, _ := config.DetectCountry(prof.Name, prof.ServerAddr)
+		prof.Country = cCode
+		if prof.ID == "" {
+			prof.ID = fmt.Sprintf("node-%d", time.Now().UnixNano())
+		}
+
+		app.cfg.Servers = append(app.cfg.Servers, *prof)
+		app.cfg.ActiveID = prof.ID
+		app.client.UpdateProfile(*prof)
 		_ = config.SaveClientConfig(app.cfgPath, app.cfg)
 		app.activeModal = ModalNone
-		app.toastMsg = "✓ Новый узел добавлен и выбран!"
+		app.toastMsg = i18n.T("✓ Новый узел добавлен и выбран!", "✓ New node added and selected!")
 		app.toastTimer = 3
 		app.mu.Unlock()
 
 		pInvalidateRect.Call(app.hwndMain, 0, 0)
+		go app.measureActiveLatency()
 		return
 	} else if app.activeModal == ModalEditServer {
 		name := strings.TrimSpace(app.modalInput1)
@@ -2178,10 +2424,21 @@ func (app *AppState) submitModal() {
 		key := strings.TrimSpace(app.modalInput3)
 		sni := strings.TrimSpace(app.modalInput4)
 
-		if addr == "" || key == "" {
-			app.modalErrorMsg = "Заполните адрес и мастер-ключ!"
+		if key == "" {
+			app.modalErrorMsg = i18n.T("Введите мастер-ключ безопасности!", "Enter security master key!")
 			app.mu.Unlock()
 			return
+		}
+		if addr == "" {
+			for _, s := range app.cfg.Servers {
+				if s.ServerAddr != "" && s.ServerAddr != "your-server-ip.com:4433" && s.ServerAddr != "127.0.0.1:8443" {
+					addr = s.ServerAddr
+					break
+				}
+			}
+			if addr == "" {
+				addr = "demo-node.shadowstar.org:4433"
+			}
 		}
 		if name == "" {
 			name = addr
@@ -2269,38 +2526,76 @@ func hitTest(hwnd uintptr, x, y int32) int {
 
 		if gApp.activeModal == ModalAddServer || gApp.activeModal == ModalEditServer {
 			mW := int32(520)
-			mH := int32(430)
+			mH := int32(370)
+			if gApp.activeModal == ModalEditServer || gApp.addServerMode == 1 {
+				mH = 430
+			}
 			mX := (w - mW) / 2
 			mY := (h - mH) / 2
 
 			// Close button ✕
-			if x >= mX+mW-44 && x <= mX+mW-16 && y >= mY+16 && y <= mY+44 {
+			if x >= mX+mW-44 && x <= mX+mW-16 && y >= mY+14 && y <= mY+44 {
 				return HitModalClose
 			}
 			inW := mW - 48
 			inH := int32(32)
-			// Input 1
-			if x >= mX+24 && x <= mX+24+inW && y >= mY+68 && y <= mY+68+inH {
-				return HitModalAddInput1
+
+			// Mode tabs (only on Add Server)
+			if gApp.activeModal == ModalAddServer {
+				tabW := (inW - 8) / 2
+				tabY := mY + 48
+				tabH := int32(28)
+				if y >= tabY && y <= tabY+tabH {
+					if x >= mX+24 && x <= mX+24+tabW {
+						return HitModalTabKey
+					}
+					t2X := mX + 24 + tabW + 8
+					if x >= t2X && x <= t2X+tabW {
+						return HitModalTabFull
+					}
+				}
 			}
-			// Input 2
-			if x >= mX+24 && x <= mX+24+inW && y >= mY+132 && y <= mY+132+inH {
-				return HitModalAddInput2
+
+			if gApp.activeModal == ModalAddServer && gApp.addServerMode == 0 {
+				// Mode 0: By Key / Link
+				// Input 1 (Name)
+				if x >= mX+24 && x <= mX+24+inW && y >= mY+108 && y <= mY+108+inH {
+					return HitModalAddInput1
+				}
+				// Input 2 (Key / Link)
+				if x >= mX+24 && x <= mX+24+inW && y >= mY+170 && y <= mY+170+inH {
+					return HitModalAddInput2
+				}
+				// Paste button
+				if x >= mX+24 && x <= mX+24+230 && y >= mY+232 && y <= mY+260 {
+					return HitModalAddPaste
+				}
+			} else {
+				// Mode 1: Full Details (or Edit Server)
+				// Input 1
+				if x >= mX+24 && x <= mX+24+inW && y >= mY+104 && y <= mY+104+inH {
+					return HitModalAddInput1
+				}
+				// Input 2
+				if x >= mX+24 && x <= mX+24+inW && y >= mY+160 && y <= mY+160+inH {
+					return HitModalAddInput2
+				}
+				// Input 3
+				if x >= mX+24 && x <= mX+24+inW && y >= mY+216 && y <= mY+216+inH {
+					return HitModalAddInput3
+				}
+				// Input 4
+				if x >= mX+24 && x <= mX+24+inW && y >= mY+272 && y <= mY+272+inH {
+					return HitModalAddInput4
+				}
+				// Paste button
+				if x >= mX+24 && x <= mX+24+245 && y >= mY+314 && y <= mY+342 {
+					return HitModalAddPaste
+				}
 			}
-			// Input 3
-			if x >= mX+24 && x <= mX+24+inW && y >= mY+196 && y <= mY+196+inH {
-				return HitModalAddInput3
-			}
-			// Input 4
-			if x >= mX+24 && x <= mX+24+inW && y >= mY+260 && y <= mY+260+inH {
-				return HitModalAddInput4
-			}
-			// Paste shadowstar:// button
-			if x >= mX+24 && x <= mX+24+230 && y >= mY+306 && y <= mY+334 {
-				return HitModalAddPaste
-			}
+
 			// Submit button
-			saveBtnW := int32(190)
+			saveBtnW := int32(180)
 			saveBtnX := mX + mW - 24 - saveBtnW
 			if x >= saveBtnX && x <= saveBtnX+saveBtnW && y >= mY+mH-52 && y <= mY+mH-14 {
 				return HitModalAddSubmit
@@ -2632,7 +2927,26 @@ func (app *AppState) handleHitClick(hwnd uintptr, hit int, pt POINT) {
 	if app.activeModal != ModalNone {
 		switch hit {
 		case HitModalClose, HitModalCancel, HitModalBackdrop:
-			app.closeModal()
+			app.mu.Lock()
+			updating := app.updatingApp
+			app.mu.Unlock()
+			if !updating {
+				app.closeModal()
+			}
+		case HitModalTabKey:
+			app.mu.Lock()
+			app.addServerMode = 0
+			app.focusedField = 1
+			app.modalErrorMsg = ""
+			app.mu.Unlock()
+			pInvalidateRect.Call(hwnd, 0, 0)
+		case HitModalTabFull:
+			app.mu.Lock()
+			app.addServerMode = 1
+			app.focusedField = 1
+			app.modalErrorMsg = ""
+			app.mu.Unlock()
+			pInvalidateRect.Call(hwnd, 0, 0)
 		case HitModalSubInput:
 			app.mu.Lock()
 			app.focusedField = 1
@@ -2669,17 +2983,7 @@ func (app *AppState) handleHitClick(hwnd uintptr, hit int, pt POINT) {
 		case HitModalAddSubmit:
 			app.submitModal()
 		case HitModalUpdateDownload:
-			app.mu.Lock()
-			url := ""
-			if app.updateInfo != nil {
-				url = app.updateInfo.HTMLURL
-			}
-			app.mu.Unlock()
-			if url == "" {
-				url = "https://github.com/komendant-zero/shadowstar/releases/latest"
-			}
-			_ = updater.OpenURL(url)
-			app.closeModal()
+			go app.runSelfUpdate()
 		}
 		return
 	}
@@ -3201,6 +3505,12 @@ func (app *AppState) showSettingsMenu(hwnd uintptr, pt POINT) {
 	p8, _ := syscall.UTF16PtrFromString(i18n.T("📝 Открыть config.json в Блокноте", "📝 Open config.json in Notepad"))
 	pAppendMenuW.Call(hMenu, 0, 105, uintptr(unsafe.Pointer(p8)))
 
+	pDir, _ := syscall.UTF16PtrFromString(i18n.T("📁 Открыть папку с конфигами", "📁 Open Config Folder"))
+	pAppendMenuW.Call(hMenu, 0, 110, uintptr(unsafe.Pointer(pDir)))
+
+	pReload, _ := syscall.UTF16PtrFromString(i18n.T("🔄 Перезагрузить конфиг с диска", "🔄 Reload Config from Disk"))
+	pAppendMenuW.Call(hMenu, 0, 111, uintptr(unsafe.Pointer(pReload)))
+
 	pAppendMenuW.Call(hMenu, 0x0800 /* MF_SEPARATOR */, 0, 0)
 
 	pQuit, _ := syscall.UTF16PtrFromString(i18n.T("✕ Закрыть ShadowStar", "✕ Exit ShadowStar"))
@@ -3230,6 +3540,33 @@ func (app *AppState) showSettingsMenu(hwnd uintptr, pt POINT) {
 		pInvalidateRect.Call(hwnd, 0, 0)
 	case 109:
 		_ = updater.OpenURL("https://github.com/komendant-zero/shadowstar")
+	case 110:
+		_ = exec.Command("explorer.exe", filepath.Dir(app.cfgPath)).Start()
+	case 111:
+		if newCfg, err := config.LoadClientConfig(app.cfgPath); err == nil && newCfg != nil {
+			app.mu.Lock()
+			app.cfg = newCfg
+			if len(newCfg.Servers) > 0 {
+				var found bool
+				for _, s := range newCfg.Servers {
+					if s.ID == newCfg.ActiveID {
+						app.client.UpdateProfile(s)
+						found = true
+						break
+					}
+				}
+				if !found {
+					app.cfg.ActiveID = newCfg.Servers[0].ID
+					app.client.UpdateProfile(newCfg.Servers[0])
+				}
+			}
+			app.mu.Unlock()
+			app.showToast("✓ Конфиг перезагружен с диска!")
+			pInvalidateRect.Call(hwnd, 0, 0)
+			go app.measureActiveLatency()
+		} else {
+			app.showToast("❌ Ошибка чтения конфига!")
+		}
 	}
 }
 

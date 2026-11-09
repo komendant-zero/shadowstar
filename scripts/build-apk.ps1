@@ -98,7 +98,7 @@ function Build-Variant {
     # 4. Generate Dalvik Dex with d8
     Write-Host "[4/7] Generating classes.dex with d8..." -ForegroundColor Yellow
     $ClassFiles = Get-ChildItem -Path "$WorkDir\obj" -Filter "*.class" -Recurse | Select-Object -ExpandProperty FullName
-    & $D8 --release --min-api 26 --output "$VarWork\dex" $ClassFiles
+    & $D8 --release --min-api 21 --lib $AndroidJar --output "$VarWork\dex" $ClassFiles
 
     # 5. Pack dex and native library into APK
     Write-Host "[5/7] Adding classes.dex and arm64 binary into APK..." -ForegroundColor Yellow
@@ -124,7 +124,7 @@ function Build-Variant {
         & $Keytool -genkey -v -keystore $Keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=ShadowStar,O=ShadowStar,C=US"
     }
 
-    & $ApkSigner sign --ks $Keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --out $OutputFile $AlignedApk
+    & $ApkSigner sign --ks $Keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --min-sdk-version 21 --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --out $OutputFile $AlignedApk
     Write-Host "Success: $OutputFile" -ForegroundColor Green
 }
 

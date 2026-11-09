@@ -10,6 +10,8 @@ run-personal*.bat
 # COMPILED BINARIES & ARTIFACTS
 # ==============================================================================
 bin/
+dist/
+release_notes.md
 *.exe
 *.dll
 *.so

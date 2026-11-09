@@ -15,10 +15,9 @@
 **ShadowStar (SSP)** is an advanced, high-performance stealth proxy protocol engineered from the ground up to bypass modern Deep Packet Inspection (**DPI, TSPU, GFW, SNI-filtering**) and resist active network probing.
 
 It provides a complete cross-platform ecosystem:
-- **Pure Win32 GDI+ Desktop Client** — A GPU-accelerated cyberpunk dark acrylic interface with zero Webview/Electron overhead (~15MB RAM).
+- **Universal Cross-Platform TUI Client** — A zero-dependency, cyberpunk interactive terminal interface with real-time speed sparklines and live logs (<10MB RAM).
 - **Mobile Ecosystem (Android & iOS PWA)** — Built-in mobile gateway with offline Service Worker support, touch UX, and native Android `VpnService` integration.
-- **Automated GitHub Updater** — In-app update checking with direct download and release notes.
-- **Bilingual Interface** — Instant runtime switching between English and Russian (Desktop & Mobile).
+- **Bilingual Interface** — Instant runtime switching between English and Russian (`[RU | EN]`).
 
 ```mermaid
 flowchart LR
@@ -55,12 +54,22 @@ flowchart LR
 
 ---
 
-### 🖥️ Desktop Client (Windows)
-Written in pure Go using native Windows Win32 API and GDI+ (no Chromium, no WebView2, no Electron).
-- **Run**: `shadowstar.exe -c shadowstar-client.json`
-- **One-Click System Proxy**: Configures Windows WinINet proxy with compatibility checks for AmneziaWG.
-- **In-App Updater**: Automatically checks GitHub Releases for new updates.
-- **Language Switch**: Click `[RU | EN]` in the header to switch languages instantly.
+### 🖥️ Interactive TUI Client (Windows, Linux, macOS)
+Written in pure Go with zero external dependencies (ANSI VT100 / Raw Console).
+- **Run**: `shadowstar -c shadowstar-client.json` (or `./run-personal-pc.bat`)
+- **Keybindings**:
+  - `[C]` / `[Space]` — Connect / Disconnect tunnel
+  - `[↑]` / `[↓]` (or `[k]` / `[j]`) — Navigate server nodes
+  - `[Enter]` — Select & switch active node
+  - `[F]` — Auto-select and connect to the fastest server (lowest ping)
+  - `[P]` — Ping all servers concurrently
+  - `[S]` — Toggle System Proxy (WinINet on Windows)
+  - `[A]` — Add node modal (`shadowstar://` URI or `ip:port:key`)
+  - `[D]` — Delete node modal
+  - `[U]` — Update from subscription URL
+  - `[Tab]` / `[R]` — Instant bilingual switch (`RU` | `EN`)
+  - `[1]`, `[2]`, `[3]` — Switch views: Servers, Live Tunnel Logs, Protocol Diagnostics
+  - `[Q]` / `[Esc]` — Clean exit with graceful proxy restoration
 
 ### 📱 Mobile Client (Android APK & PWA)
 - **Direct Android APK**: Download the signed APK directly from [GitHub Releases](https://github.com/komendant-zero/shadowstar/releases) (`ShadowStar.apk`), install on your Android phone, and tap Connect!
@@ -95,17 +104,26 @@ The installer configures:
 | **Анализ длин пакетов** (нейросети выявляют размеры рукопожатий) | **Dynamic Frame Morphing**: в каждый кадр подмешивается случайный шум (16–256 байт), полностью скрывая сигнатуру. |
 | **Фильтрация по SNI в первом TCP сегменте** | **TCP Chunker**: ClientHello дробится на несколько фрагментов с микрозадержкой. Оборудование ТСПУ пропускает поток без детекта. |
 | **Активное зондирование цензоров** (сканирование подозрительных IP) | **Shield Fallback**: если подключение не содержит верного криптографического HMAC-токена, сервер проксирует скан на настоящий сайт Microsoft. Зонд получает ответ 200 OK! |
-| **Тяжелые клиенты на Electron** (250+ МБ ОЗУ) | **Pure Win32 GDI+**: сверхбыстрое нативное приложение Windows, потребляющее всего ~15 МБ ОЗУ. |
+| **Тяжелые клиенты на Electron** (250+ МБ ОЗУ) | **Interactive TUI**: сверхбыстрое кроссплатформенное терминальное приложение с нулевыми зависимостями, потребляющее <10 МБ ОЗУ. |
 
 ---
 
-### 🖥️ Настольный клиент для Windows (Desktop Client)
-- **Запуск**: запустите `shadowstar.exe` или `run-personal-pc.bat`.
-- **Подписки**: автоматическое обновление списка узлов по HTTPS-ссылке (JSON / Base64 / `shadowstar://`).
-- **Редактирование и удаление узлов**: изменяйте IP, порт, ключ, SNI и удаляйте ненужные узлы прямо в интерфейсе.
-- **Авто-выбор сервера**: кнопка **«⚡ Выбрать самый быстрый»** проверяет задержку всех серверов и подключает лучший.
-- **Обновление через GitHub**: кнопка **«⚡ Update»** и пункт меню **«🔄 Проверить обновления»** проверяют свежие релизы и открывают чейнджлог.
-- **Двуязычный интерфейс**: переключение языка `[ RU | EN ]` в один клик в шапке окна.
+### 🖥️ Кроссплатформенный интерактивный TUI-клиент (Windows, Linux, macOS)
+Полноценный интерактивный консольный терминал без сторонних зависимостей (чистый Go, ANSI VT100 / Raw Console) с живыми графиками скоростей (sparklines) и логами в реальном времени.
+- **Запуск**: запустите `shadowstar.exe` (или `run-personal-pc.bat`). На Linux/macOS запускается командой `./shadowstar`.
+- **Горячие клавиши**:
+  - `[C]` / `[Пробел]` — Подключение / Отключение туннеля
+  - `[↑]` / `[↓]` (или `[k]` / `[j]`) — Навигация по списку серверов
+  - `[Enter]` — Переключение и активация выбранного узла
+  - `[F]` — Авто-выбор самого быстрого сервера с минимальным пингом
+  - `[P]` — Одновременный пинг всех узлов
+  - `[S]` — Переключение системного прокси (WinINet)
+  - `[A]` — Модальное окно добавления узла (`shadowstar://` или `ip:port:key`)
+  - `[D]` — Удаление выбранного узла
+  - `[U]` — Обновление серверов по ссылке подписки
+  - `[Tab]` / `[R]` — Мгновенное переключение языка (`RU` | `EN`)
+  - `[1]`, `[2]`, `[3]` — Переключение вкладок (Узлы / Живые логи / Диагностика криптостека)
+  - `[Q]` / `[Esc]` — Безопасный выход с корректной очисткой прокси и терминала
 
 ---
 

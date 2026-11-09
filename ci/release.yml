@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         include:
-          # Windows Desktop Client
+          # Windows Client (Interactive TUI + Core)
           - os: windows
             arch: amd64
             pkg: ./cmd/shadowstar

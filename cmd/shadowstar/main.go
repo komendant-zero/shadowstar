@@ -12,8 +12,8 @@ import (
 	"github.com/shadowstar/shadowstar/pkg/client"
 	"github.com/shadowstar/shadowstar/pkg/config"
 	"github.com/shadowstar/shadowstar/pkg/gui"
-	"github.com/shadowstar/shadowstar/pkg/nativegui"
 	"github.com/shadowstar/shadowstar/pkg/sysproxy"
+	"github.com/shadowstar/shadowstar/pkg/tui"
 	"github.com/shadowstar/shadowstar/pkg/updater"
 )
 
@@ -25,9 +25,10 @@ func main() {
 	updater.CleanupOldFiles()
 
 	configPath := flag.String("c", "shadowstar-client.json", "Path to client config file")
-	headless := flag.Bool("headless", false, "Run in headless CLI mode without opening GUI window")
+	_ = flag.Bool("tui", true, "Launch interactive Terminal User Interface (default)")
+	headless := flag.Bool("headless", false, "Run in background/daemon CLI mode without interactive TUI")
 	useWeb := flag.Bool("web", false, "Launch optional web browser GUI")
-	connect := flag.Bool("connect", false, "Auto-connect on startup")
+	connect := flag.Bool("connect", false, "Auto-connect to active server on startup")
 	showVersion := flag.Bool("version", false, "Print version")
 	importURI := flag.String("import", "", "Import a shadowstar:// link into config")
 	subURL := flag.String("sub", "", "Set subscription URL and update servers")
@@ -236,8 +237,9 @@ func main() {
 		return
 	}
 
-	// Default: Launch ultra-lightweight, sleek, native Windows desktop app (zero web browser)
-	if err := nativegui.Run(absCfg, c, cfg, *connect); err != nil {
-		log.Fatalf("Failed to launch GUI: %v", err)
+	// Default: Launch ultra-lightweight, sleek, cross-platform interactive Terminal UI (TUI)
+	app := tui.New(absCfg, c, cfg)
+	if err := app.Run(*connect); err != nil {
+		log.Fatalf("Failed to launch TUI: %v", err)
 	}
 }

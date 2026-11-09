@@ -17,36 +17,46 @@
     <header class="app-header">
       <div>
         <div class="brand-title">SHADOWSTAR</div>
-        <div class="brand-sub">STEALTH REALITY VPN • MOBILE</div>
+        <div class="brand-sub" data-i18n="brandSub">STEALTH REALITY VPN • MOBILE</div>
       </div>
       <div style="display: flex; gap: 8px;">
         <button class="header-btn" onclick="toggleLanguage()" id="lang-btn" title="RU / EN">RU</button>
-        <button class="header-btn" onclick="openAddModal()" title="Добавить узел">➕</button>
+        <button class="header-btn" onclick="openAddModal()" title="Добавить узел">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
       </div>
     </header>
 
     <!-- DASHBOARD VIEW -->
     <main id="view-dashboard">
-      <!-- Big Center Power Button -->
+      <!-- Center Power Button -->
       <section class="power-section">
         <div class="power-btn-outer" id="power-btn" onclick="toggleConnect()">
           <div class="power-btn-inner">
-            <span class="power-icon">⏻</span>
+            <svg class="power-svg" viewBox="0 0 24 24">
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/>
+            </svg>
           </div>
         </div>
-        <div class="status-badge" id="status-badge">ОТКЛЮЧЕНО</div>
-        <div class="status-sub" id="status-sub">Нажмите для включения защиты</div>
+        <div class="status-badge" id="status-badge" data-i18n="statusOff">ОТКЛЮЧЕНО</div>
+        <div class="status-sub" id="status-sub" data-i18n="statusSubOff">Нажмите для включения защиты</div>
       </section>
 
       <!-- Telemetry Speed Grid -->
       <section class="telemetry-grid">
         <div class="telem-card">
-          <div class="telem-label">Скачивание</div>
-          <div class="telem-val down" id="speed-down">↓ 0 KB/s</div>
+          <div class="telem-label" data-i18n="downLabel">Скачивание</div>
+          <div class="telem-val down" id="speed-down">
+            <svg class="icon-inline" viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+            <span id="speed-down-val">0 KB/s</span>
+          </div>
         </div>
         <div class="telem-card">
-          <div class="telem-label">Отдача</div>
-          <div class="telem-val up" id="speed-up">↑ 0 KB/s</div>
+          <div class="telem-label" data-i18n="upLabel">Отдача</div>
+          <div class="telem-val up" id="speed-up">
+            <svg class="icon-inline" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            <span id="speed-up-val">0 KB/s</span>
+          </div>
         </div>
       </section>
 
@@ -58,14 +68,14 @@
       <!-- Security Info Card -->
       <section class="glass-card" style="padding: 14px 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 18px;">🛡️</span>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <svg class="icon-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             <div>
-              <div style="font-size: 13px; font-weight: 700;">Режим анти-DPI обхода</div>
+              <div style="font-size: 13px; font-weight: 700;" data-i18n="securityTitle">Режим анти-DPI обхода</div>
               <div style="font-size: 11px; color: var(--text-dim);">X25519 ECDH • TCP Chunker • Fallback Shield</div>
             </div>
           </div>
-          <span style="font-size: 11px; background: rgba(16, 185, 129, 0.15); color: var(--accent-green); padding: 3px 8px; border-radius: 4px; font-weight: 700;">АКТИВЕН</span>
+          <span style="font-size: 11px; background: rgba(16, 185, 129, 0.15); color: var(--accent-green); padding: 3px 8px; border-radius: 4px; font-weight: 700;" data-i18n="securityActive">АКТИВЕН</span>
         </div>
       </section>
     </main>
@@ -74,15 +84,24 @@
     <main id="view-servers" style="display: none;">
       <!-- Toolbar -->
       <div class="servers-toolbar">
-        <button class="tool-btn" onclick="openAddModal()">➕ Новый узел</button>
-        <button class="tool-btn" onclick="openSubModal()">⚙️ URL подписки</button>
-        <button class="tool-btn" onclick="selectAutoBest()">⚡ Самый быстрый</button>
+        <button class="tool-btn" onclick="openAddModal()">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          <span data-i18n="toolAdd">Новый узел</span>
+        </button>
+        <button class="tool-btn" onclick="openSubModal()">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span data-i18n="toolSub">URL подписки</span>
+        </button>
+        <button class="tool-btn" onclick="selectAutoBest()">
+          <svg class="icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span data-i18n="toolFastest">Самый быстрый</span>
+        </button>
       </div>
 
       <!-- Header with Count -->
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding: 0 4px;">
         <span style="font-size: 12px; font-weight: 700; color: var(--text-dim); text-transform: uppercase;">
-          Узлы (<span id="servers-count">0</span>)
+          <span data-i18n="nodesHeader">Узлы</span> (<span id="servers-count">0</span>)
         </span>
       </div>
 
@@ -95,13 +114,13 @@
 
   <!-- Bottom Navigation Bar -->
   <nav class="bottom-nav">
-    <div class="nav-item active" data-tab="dashboard" onclick="switchTab('dashboard')">
-      <span class="nav-icon">⚡</span>
-      <span>Туннель</span>
+    <div class="nav-item active" id="nav-tunnel" onclick="switchTab('dashboard')">
+      <svg class="nav-svg" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      <span data-i18n="tabTunnel">Туннель</span>
     </div>
-    <div class="nav-item" data-tab="servers" onclick="switchTab('servers')">
-      <span class="nav-icon">🌐</span>
-      <span>Серверы</span>
+    <div class="nav-item" id="nav-servers" onclick="switchTab('servers')">
+      <svg class="nav-svg" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+      <span data-i18n="tabServers">Серверы</span>
     </div>
   </nav>
 
@@ -109,35 +128,74 @@
   <div class="modal-overlay" id="modal-server">
     <div class="modal-sheet">
       <div class="modal-header">
-        <div class="modal-title" id="modal-server-title">➕ Добавление узла ShadowStar</div>
-        <button class="modal-close" onclick="closeModal('modal-server')">✕</button>
+        <div class="modal-title" id="modal-server-title" data-i18n="modalAddTitle">Добавление узла</div>
+        <button class="modal-close" onclick="closeModal('modal-server')">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
       </div>
 
-      <div class="input-group">
-        <label class="input-label">Название узла</label>
-        <input type="text" class="input-field" id="input-node-name" placeholder="Например: VPS Нидерланды #1">
+      <!-- Segmented Control Tabs (2 Modes) -->
+      <div class="modal-tabs" id="modal-tabs-container">
+        <button class="modal-tab-btn active" id="tab-btn-key" type="button" onclick="switchAddMode('key')" data-i18n="tabByKey">По ключу / ссылке</button>
+        <button class="modal-tab-btn" id="tab-btn-full" type="button" onclick="switchAddMode('full')" data-i18n="tabFull">Полные данные</button>
       </div>
 
-      <div class="input-group">
-        <label class="input-label">Адрес и порт сервера (IP:Port)</label>
-        <input type="text" class="input-field" id="input-node-addr" placeholder="198.51.100.1:4433">
+      <!-- Mode 1: По ключу / ссылке (Быстрое добавление) -->
+      <div id="add-pane-key">
+        <div class="input-group">
+          <label class="input-label" data-i18n="labelNodeName">Название ноды</label>
+          <input type="text" class="input-field" id="input-quick-name" data-i18n-ph="phNodeName" placeholder="Например: Мой VPS">
+        </div>
+
+        <div class="input-group">
+          <label class="input-label" data-i18n="labelKeyOrLink">Ключ или ссылка shadowstar://</label>
+          <div class="input-with-action">
+            <input type="text" class="input-field" id="input-quick-key" data-i18n-ph="phKeyOrLink" placeholder="shadowstar://... или IP:Port:Key или Ключ">
+            <button class="input-action-btn" type="button" onclick="pasteIntoInput('input-quick-key')">
+              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+              <span data-i18n="btnPaste">Вставить</span>
+            </button>
+          </div>
+          <div class="input-hint" data-i18n="hintQuickKey">Поддерживаются ссылки shadowstar://, формат IP:Port:Key или 32-байтный ключ</div>
+        </div>
+
+        <button class="btn-primary" type="button" onclick="saveQuickNode()" data-i18n="btnAddNode">Добавить узел</button>
       </div>
 
-      <div class="input-group">
-        <label class="input-label">Мастер-ключ безопасности</label>
-        <input type="text" class="input-field" id="input-node-key" placeholder="Секретный мастер-ключ узла">
+      <!-- Mode 2: Полные данные (Ручная настройка) -->
+      <div id="add-pane-full" style="display: none;">
+        <div class="input-group">
+          <label class="input-label" data-i18n="labelNodeName">Название ноды</label>
+          <input type="text" class="input-field" id="input-node-name" data-i18n-ph="phNodeName" placeholder="Например: VPS Нидерланды #1">
+        </div>
+
+        <div class="input-group">
+          <label class="input-label" data-i18n="labelNodeAddr">Адрес и порт сервера (IP:Port)</label>
+          <div class="input-with-action">
+            <input type="text" class="input-field" id="input-node-addr" data-i18n-ph="phAddr" placeholder="198.51.100.1:4433">
+            <button class="input-action-btn" type="button" onclick="pasteIntoInput('input-node-addr')">
+              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label class="input-label" data-i18n="labelNodeKey">Мастер-ключ безопасности</label>
+          <div class="input-with-action">
+            <input type="text" class="input-field" id="input-node-key" data-i18n-ph="phKey" placeholder="32-байтный hex мастер-ключ">
+            <button class="input-action-btn" type="button" onclick="pasteIntoInput('input-node-key')">
+              <svg class="icon-sm" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label class="input-label" data-i18n="labelNodeSni">Маскировка SNI (Decoy Domain)</label>
+          <input type="text" class="input-field" id="input-node-sni" value="www.microsoft.com" data-i18n-ph="phSni" placeholder="www.microsoft.com">
+        </div>
+
+        <button class="btn-primary" type="button" onclick="saveFullNode()" data-i18n="btnSaveNode">Сохранить узел</button>
       </div>
-
-      <div class="input-group">
-        <label class="input-label">Маскировка SNI (Decoy Domain)</label>
-        <input type="text" class="input-field" id="input-node-sni" value="www.microsoft.com" placeholder="www.microsoft.com">
-      </div>
-
-      <button class="tool-btn" style="width: 100%; justify-content: center; margin-bottom: 12px;" onclick="pasteFromClipboard()">
-        📋 Вставить ссылку shadowstar://
-      </button>
-
-      <button class="btn-primary" onclick="saveServerModal()">✓ Сохранить узел</button>
     </div>
   </div>
 
@@ -145,20 +203,28 @@
   <div class="modal-overlay" id="modal-sub">
     <div class="modal-sheet">
       <div class="modal-header">
-        <div class="modal-title">⚙️ URL подписки ShadowStar</div>
-        <button class="modal-close" onclick="closeModal('modal-sub')">✕</button>
+        <div class="modal-title" data-i18n="subTitle">URL подписки ShadowStar</div>
+        <button class="modal-close" onclick="closeModal('modal-sub')">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
       </div>
 
       <div class="input-group">
-        <label class="input-label">Прямая ссылка на подписку</label>
-        <input type="text" class="input-field" id="input-sub-url" placeholder="https://example.com/api/subscription">
+        <label class="input-label" data-i18n="subInput">Прямая ссылка на подписку</label>
+        <div class="input-with-action">
+          <input type="text" class="input-field" id="input-sub-url" data-i18n-ph="phSubUrl" placeholder="https://example.com/api/subscription">
+          <button class="input-action-btn" type="button" onclick="pasteIntoInput('input-sub-url')">
+            <svg class="icon-sm" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+            <span data-i18n="btnPaste">Вставить</span>
+          </button>
+        </div>
       </div>
 
-      <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 16px;">
+      <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 16px;" data-i18n="subDesc">
         Поддерживаются форматы JSON, Base64 и списки ссылок вида shadowstar://
       </div>
 
-      <button class="btn-primary" onclick="saveSubscription()">✓ Загрузить и обновить</button>
+      <button class="btn-primary" type="button" onclick="saveSubscription()" data-i18n="loadSubBtn">Загрузить и обновить</button>
     </div>
   </div>
 

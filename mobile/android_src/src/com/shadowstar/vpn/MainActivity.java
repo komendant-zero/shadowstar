@@ -229,10 +229,34 @@ public class MainActivity extends Activity {
                     ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
                     if (cm != null) {
                         cm.setPrimaryClip(ClipData.newPlainText("shadowstar", text));
-                        Toast.makeText(activity, "✓ Скопировано в буфер!", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(activity, "Скопировано в буфер", Toast.LENGTH_SHORT).show();
                     }
                 } catch (Throwable ignored) {}
             });
+        }
+
+        @JavascriptInterface
+        public String getClipboardText() {
+            final String[] result = new String[]{""};
+            final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+            activity.runOnUiThread(() -> {
+                try {
+                    ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
+                        CharSequence cs = cm.getPrimaryClip().getItemAt(0).getText();
+                        if (cs != null) {
+                            result[0] = cs.toString();
+                        }
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    latch.countDown();
+                }
+            });
+            try {
+                latch.await(350, java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (InterruptedException ignored) {}
+            return result[0];
         }
 
         @JavascriptInterface

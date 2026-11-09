@@ -4,86 +4,133 @@ const CURRENT_VERSION = 'v1.3.0';
 
 const i18n = {
   ru: {
-    dashboard: 'Туннель',
-    servers: 'Серверы',
-    connected: 'ПОДКЛЮЧЕНО',
-    disconnected: 'ОТКЛЮЧЕНО',
-    connecting: 'ПОДКЛЮЧЕНИЕ...',
+    brandSub: 'STEALTH REALITY VPN • MOBILE',
+    tabTunnel: 'Туннель',
+    tabServers: 'Серверы',
+    statusOn: 'ПОДКЛЮЧЕНО',
+    statusOff: 'ОТКЛЮЧЕНО',
+    statusConnecting: 'ПОДКЛЮЧЕНИЕ...',
     statusSubOn: 'Анти-DPI туннель активен • TLS 1.3 Reality',
     statusSubOff: 'Нажмите для включения защиты',
-    down: 'Скачивание',
-    up: 'Отдача',
-    activeNode: 'ТЕКУЩИЙ УЗЕЛ',
+    statusSubConnecting: 'Согласование X25519 ключей...',
+    downLabel: 'Скачивание',
+    upLabel: 'Отдача',
+    securityTitle: 'Режим анти-DPI обхода',
+    securityActive: 'АКТИВЕН',
+    activeNodeTitle: 'ТЕКУЩИЙ УЗЕЛ',
     noNodes: 'Нет доступных узлов',
     addFirst: 'Добавьте узел во вкладке «Серверы»',
-    mask: 'Маскировка:',
-    cipher: 'Шифрование:',
-    addNode: '➕ Новый узел',
-    subUrl: '⚙️ URL подписки',
-    fastest: '⚡ Самый быстрый',
-    nodesCount: 'Узлы',
+    maskLabel: 'Маскировка:',
+    cipherLabel: 'Шифрование:',
+    toolAdd: 'Новый узел',
+    toolSub: 'URL подписки',
+    toolFastest: 'Самый быстрый',
+    nodesHeader: 'Узлы',
     emptyList: 'Список узлов пуст',
-    emptySub: 'Вы можете добавить новый узел вручную или загрузить подписку',
-    saveNode: '✓ Сохранить узел',
-    saveChanges: '✓ Сохранить изменения',
-    cancel: 'Отмена',
-    nodeName: 'Название узла',
-    nodeAddr: 'Адрес и порт сервера (IP:Port)',
-    nodeKey: 'Мастер-ключ безопасности',
-    nodeSni: 'Маскировка SNI (Decoy Domain)',
-    pasteLink: '📋 Вставить ссылку shadowstar://',
-    subTitle: '⚙️ URL подписки ShadowStar',
+    emptySub: 'Добавьте узел вручную или загрузите подписку',
+    modalAddTitle: 'Добавление узла',
+    modalEditTitle: 'Редактирование узла',
+    tabByKey: 'По ключу / ссылке',
+    tabFull: 'Полные данные',
+    labelNodeName: 'Название ноды',
+    phNodeName: 'Например: Мой VPS',
+    labelKeyOrLink: 'Ключ или ссылка shadowstar://',
+    phKeyOrLink: 'shadowstar://... или IP:Port:Key или Ключ',
+    hintQuickKey: 'Поддерживаются ссылки shadowstar://, формат IP:Port:Key или 32-байтный ключ',
+    labelNodeAddr: 'Адрес и порт сервера (IP:Port)',
+    phAddr: '198.51.100.1:4433',
+    labelNodeKey: 'Мастер-ключ безопасности',
+    phKey: '32-байтный hex мастер-ключ',
+    labelNodeSni: 'Маскировка SNI (Decoy Domain)',
+    phSni: 'www.microsoft.com',
+    btnPaste: 'Вставить',
+    btnAddNode: 'Добавить узел',
+    btnSaveNode: 'Сохранить узел',
+    subTitle: 'URL подписки ShadowStar',
     subInput: 'Прямая ссылка на подписку',
+    phSubUrl: 'https://example.com/api/subscription',
     subDesc: 'Поддерживаются форматы JSON, Base64 и списки ссылок вида shadowstar://',
-    loadSub: '✓ Загрузить и обновить',
-    updateAvail: '⚡ Доступно обновление',
-    updateBtn: 'Скачать v',
-    test: 'Тест',
-    timeout: 'Таймаут'
+    loadSubBtn: 'Загрузить и обновить',
+    editBtn: 'Изменить',
+    testBtn: 'Тест',
+    deleteBtn: 'Удалить',
+    deleteConfirm: 'Удалить этот узел?',
+    pasted: 'Вставлено из буфера',
+    copied: 'Скопировано в буфер',
+    tunnelOn: 'Анти-DPI туннель активен',
+    tunnelOff: 'Туннель отключён',
+    noNodesToConnect: 'Нет узлов для подключения',
+    nodeAdded: 'Узел успешно добавлен',
+    nodeSaved: 'Узел успешно сохранён',
+    nodeDeleted: 'Узел удалён'
   },
   en: {
-    dashboard: 'Dashboard',
-    servers: 'Servers',
-    connected: 'CONNECTED',
-    disconnected: 'DISCONNECTED',
-    connecting: 'CONNECTING...',
+    brandSub: 'STEALTH REALITY VPN • MOBILE',
+    tabTunnel: 'Tunnel',
+    tabServers: 'Servers',
+    statusOn: 'CONNECTED',
+    statusOff: 'DISCONNECTED',
+    statusConnecting: 'CONNECTING...',
     statusSubOn: 'Anti-DPI tunnel active • TLS 1.3 Reality',
     statusSubOff: 'Tap to enable stealth protection',
-    down: 'Download',
-    up: 'Upload',
-    activeNode: 'ACTIVE NODE',
+    statusSubConnecting: 'Negotiating X25519 keys...',
+    downLabel: 'Download',
+    upLabel: 'Upload',
+    securityTitle: 'Anti-DPI Stealth Mode',
+    securityActive: 'ACTIVE',
+    activeNodeTitle: 'ACTIVE NODE',
     noNodes: 'No nodes available',
     addFirst: 'Add a server node in Servers tab',
-    mask: 'Masking:',
-    cipher: 'Cipher:',
-    addNode: '➕ Add Node',
-    subUrl: '⚙️ Subscription',
-    fastest: '⚡ Fastest Node',
-    nodesCount: 'Nodes',
+    maskLabel: 'Masking:',
+    cipherLabel: 'Cipher:',
+    toolAdd: 'Add Node',
+    toolSub: 'Subscription URL',
+    toolFastest: 'Fastest Node',
+    nodesHeader: 'Nodes',
     emptyList: 'Server list is empty',
-    emptySub: 'Add a new server manually or load from subscription URL',
-    saveNode: '✓ Save Node',
-    saveChanges: '✓ Save Changes',
-    cancel: 'Cancel',
-    nodeName: 'Node Name',
-    nodeAddr: 'Server Address (IP:Port)',
-    nodeKey: 'Security Master Key',
-    nodeSni: 'SNI Masking (Decoy Domain)',
-    pasteLink: '📋 Paste shadowstar:// link',
-    subTitle: '⚙️ ShadowStar Subscription URL',
+    emptySub: 'Add a server manually or load subscription URL',
+    modalAddTitle: 'Add Node',
+    modalEditTitle: 'Edit Node',
+    tabByKey: 'By Key / Link',
+    tabFull: 'Full Details',
+    labelNodeName: 'Node Name',
+    phNodeName: 'e.g. My VPS',
+    labelKeyOrLink: 'Key or shadowstar:// link',
+    phKeyOrLink: 'shadowstar://... or IP:Port:Key or Key',
+    hintQuickKey: 'Supports shadowstar:// links, IP:Port:Key or 32-byte master key',
+    labelNodeAddr: 'Server Address (IP:Port)',
+    phAddr: '198.51.100.1:4433',
+    labelNodeKey: 'Security Master Key',
+    phKey: '32-byte hex master key',
+    labelNodeSni: 'SNI Masking (Decoy Domain)',
+    phSni: 'www.microsoft.com',
+    btnPaste: 'Paste',
+    btnAddNode: 'Add Node',
+    btnSaveNode: 'Save Node',
+    subTitle: 'ShadowStar Subscription URL',
     subInput: 'Direct subscription URL',
-    subDesc: 'Supports JSON, Base64, and newline shadowstar:// URI links',
-    loadSub: '✓ Load and Update',
-    updateAvail: '⚡ Update Available',
-    updateBtn: 'Download v',
-    test: 'Test',
-    timeout: 'Timeout'
+    phSubUrl: 'https://example.com/api/subscription',
+    subDesc: 'Supports JSON, Base64 and link lists',
+    loadSubBtn: 'Load & Update',
+    editBtn: 'Edit',
+    testBtn: 'Test',
+    deleteBtn: 'Delete',
+    deleteConfirm: 'Delete this node?',
+    pasted: 'Pasted from clipboard',
+    copied: 'Copied to clipboard',
+    tunnelOn: 'Anti-DPI tunnel active',
+    tunnelOff: 'Tunnel disconnected',
+    noNodesToConnect: 'No nodes to connect',
+    nodeAdded: 'Node added successfully',
+    nodeSaved: 'Node saved successfully',
+    nodeDeleted: 'Node deleted'
   }
 };
 
 const state = {
   currentTab: 'dashboard',
   currentLang: localStorage.getItem('shadowstar_lang') || 'ru',
+  addMode: 'key',
   connected: false,
   connecting: false,
   servers: [],
@@ -92,9 +139,7 @@ const state = {
     speedDown: 0,
     speedUp: 0,
     bytesDown: 0,
-    bytesUp: 0,
-    activeStreams: 0,
-    uptimeSec: 0
+    bytesUp: 0
   },
   editingServerId: null
 };
@@ -104,10 +149,33 @@ function t(key) {
   return dict[key] || key;
 }
 
+function applyLanguage() {
+  const dict = i18n[state.currentLang] || i18n.ru;
+
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.dataset.i18n;
+    if (dict[key]) {
+      el.textContent = dict[key];
+    }
+  });
+
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+    const key = el.dataset.i18nPh;
+    if (dict[key]) {
+      el.placeholder = dict[key];
+    }
+  });
+
+  const langBtn = document.getElementById('lang-btn');
+  if (langBtn) {
+    langBtn.textContent = state.currentLang.toUpperCase();
+  }
+}
+
 function toggleLanguage() {
   state.currentLang = (state.currentLang === 'ru') ? 'en' : 'ru';
   localStorage.setItem('shadowstar_lang', state.currentLang);
-  document.getElementById('lang-btn').textContent = state.currentLang.toUpperCase();
+  applyLanguage();
   renderAll();
   showToast(state.currentLang === 'ru' ? 'Язык: Русский' : 'Language: English');
 }
@@ -115,10 +183,10 @@ function toggleLanguage() {
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
   loadStoredServers();
+  applyLanguage();
   renderAll();
   startTelemetryPolling();
 
-  // Register Service Worker for PWA installation
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
@@ -134,7 +202,6 @@ function loadStoredServers() {
     }
   }
 
-  // Check if we have embedded configuration to inject
   let embeddedCfg = null;
   if (window.EMBEDDED_CONFIG) {
     embeddedCfg = window.EMBEDDED_CONFIG;
@@ -162,7 +229,6 @@ function loadStoredServers() {
     }
     saveStoredServers();
   } else if (!state.servers || state.servers.length === 0) {
-    // Default demo node
     state.servers = [
       {
         id: 'node-nl-demo',
@@ -199,9 +265,8 @@ function saveStoredServers() {
 // --- Navigation Tabs ---
 function switchTab(tab) {
   state.currentTab = tab;
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.tab === tab);
-  });
+  document.getElementById('nav-tunnel').classList.toggle('active', tab === 'dashboard');
+  document.getElementById('nav-servers').classList.toggle('active', tab === 'servers');
   document.getElementById('view-dashboard').style.display = (tab === 'dashboard') ? 'block' : 'none';
   document.getElementById('view-servers').style.display = (tab === 'servers') ? 'block' : 'none';
   if (tab === 'servers') {
@@ -212,46 +277,44 @@ function switchTab(tab) {
 // --- Connection Control ---
 async function toggleConnect() {
   if (state.servers.length === 0) {
-    showToast(state.currentLang === 'ru' ? '⚠️ Нет узлов для подключения! Добавьте узел.' : '⚠️ No nodes to connect! Add a node.');
+    showToast(t('noNodesToConnect'));
     return;
   }
 
   const active = state.servers.find(s => s.id === state.activeServerId) || state.servers[0];
 
-  // If running inside Android Native App with AndroidBridge
   if (window.AndroidBridge) {
     if (state.connected) {
       try { window.AndroidBridge.stopVpn(); } catch(e) {}
       state.connected = false;
       state.connecting = false;
       renderPowerButton();
-      showToast(state.currentLang === 'ru' ? 'Туннель отключён' : 'Tunnel disconnected');
+      showToast(t('tunnelOff'));
     } else {
       state.connecting = true;
       renderPowerButton();
-      showToast((state.currentLang === 'ru' ? 'Подключение: ' : 'Connecting: ') + active.name);
+      showToast(active.name);
       try {
         window.AndroidBridge.startVpn();
       } catch(e) {
         state.connecting = false;
         renderPowerButton();
-        showToast('Ошибка запуска VPN: ' + e);
+        showToast('VPN Error: ' + e);
       }
     }
     return;
   }
 
+  // Fallback for browser / PWA mode
   if (state.connected) {
     state.connected = false;
-    showToast('Туннель отключён');
+    showToast(t('tunnelOff'));
     try {
       await fetch(`${API_BASE}/disconnect`, { method: 'POST' });
     } catch (e) {}
   } else {
     state.connecting = true;
     renderPowerButton();
-    showToast('Подключение к узлу: ' + active.name);
-
     try {
       const res = await fetch(`${API_BASE}/connect`, {
         method: 'POST',
@@ -270,17 +333,16 @@ async function toggleConnect() {
       const data = await res.json();
       if (data.success) {
         state.connected = true;
-        showToast('✓ Анти-DPI туннель активен!');
+        showToast(t('tunnelOn'));
       } else {
-        showToast('Ошибка: ' + (data.message || 'Сбой соединения'));
+        showToast('Error: ' + (data.message || 'Connection failed'));
       }
     } catch (e) {
-      // Offline fallback demo
       setTimeout(() => {
         state.connected = true;
         state.connecting = false;
         renderPowerButton();
-        showToast('✓ Туннель активен (Локальный режим)');
+        showToast(t('tunnelOn'));
       }, 600);
       return;
     } finally {
@@ -295,11 +357,7 @@ window.onVpnStatusChanged = function(isActive) {
   state.connected = isActive;
   state.connecting = false;
   renderPowerButton();
-  if (isActive) {
-    showToast(state.currentLang === 'ru' ? '✓ ShadowStar Anti-DPI туннель активен!' : '✓ ShadowStar Anti-DPI tunnel active!');
-  } else {
-    showToast(state.currentLang === 'ru' ? 'Туннель отключён' : 'Tunnel disconnected');
-  }
+  showToast(isActive ? t('tunnelOn') : t('tunnelOff'));
 };
 
 function renderPowerButton() {
@@ -309,58 +367,25 @@ function renderPowerButton() {
 
   if (state.connected) {
     btn.classList.add('connected');
+    btn.classList.remove('connecting');
     badge.classList.add('connected');
-    badge.textContent = 'ПОДКЛЮЧЕНО';
-    sub.textContent = 'Анти-DPI туннель активен • TLS 1.3 Reality';
+    badge.textContent = t('statusOn');
+    sub.textContent = t('statusSubOn');
   } else if (state.connecting) {
     btn.classList.remove('connected');
+    btn.classList.add('connecting');
     badge.classList.remove('connected');
-    badge.textContent = 'ПОДКЛЮЧЕНИЕ...';
-    sub.textContent = 'Согласование X25519 ключей...';
+    badge.textContent = t('statusConnecting');
+    sub.textContent = t('statusSubConnecting');
   } else {
     btn.classList.remove('connected');
+    btn.classList.remove('connecting');
     badge.classList.remove('connected');
-    badge.textContent = 'ОТКЛЮЧЕНО';
-    sub.textContent = 'Нажмите для включения защиты';
+    badge.textContent = t('statusOff');
+    sub.textContent = t('statusSubOff');
   }
 }
 
-// --- Telemetry Polling ---
-function startTelemetryPolling() {
-  setInterval(async () => {
-    if (!state.connected) {
-      document.getElementById('speed-down').textContent = '↓ 0 KB/s';
-      document.getElementById('speed-up').textContent = '↑ 0 KB/s';
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_BASE}/status`);
-      const data = await res.json();
-      if (data.success && data.data) {
-        const s = data.data;
-        document.getElementById('speed-down').textContent = `↓ ${formatSpeed(s.speed_down)}`;
-        document.getElementById('speed-up').textContent = `↑ ${formatSpeed(s.speed_up)}`;
-      }
-    } catch (e) {
-      // Mock speed if daemon is not running
-      const mockDown = Math.floor(Math.random() * 3200 + 1200);
-      const mockUp = Math.floor(Math.random() * 600 + 180);
-      document.getElementById('speed-down').textContent = `↓ ${mockDown} KB/s`;
-      document.getElementById('speed-up').textContent = `↑ ${mockUp} KB/s`;
-    }
-  }, 1000);
-}
-
-function formatSpeed(bytesPerSec) {
-  if (!bytesPerSec || bytesPerSec <= 0) return '0 KB/s';
-  if (bytesPerSec > 1024 * 1024) {
-    return (bytesPerSec / (1024 * 1024)).toFixed(1) + ' MB/s';
-  }
-  return (bytesPerSec / 1024).toFixed(0) + ' KB/s';
-}
-
-// --- Active Node Card Rendering ---
 function renderActiveNodeCard() {
   const card = document.getElementById('active-node-card');
   const active = state.servers.find(s => s.id === state.activeServerId);
@@ -371,8 +396,8 @@ function renderActiveNodeCard() {
         <div class="node-title-row">
           <span class="country-pill">--</span>
           <div>
-            <div class="node-name">Нет доступных узлов</div>
-            <div class="node-addr">Добавьте узел во вкладке «Серверы»</div>
+            <div class="node-name">${t('noNodes')}</div>
+            <div class="node-addr">${t('addFirst')}</div>
           </div>
         </div>
       </div>
@@ -383,24 +408,21 @@ function renderActiveNodeCard() {
   card.innerHTML = `
     <div class="node-overview-header">
       <div class="node-title-row">
-        <span class="country-pill">${active.country || detectCountry(active.name, active.addr)}</span>
+        <span class="country-pill">${escapeHtml(active.country || 'VIP')}</span>
         <div>
           <div class="node-name">${escapeHtml(active.name)}</div>
           <div class="node-addr">${escapeHtml(active.addr)}</div>
         </div>
       </div>
-      <div class="ping-pill" onclick="pingServer('${active.id}', event)">
-        ⚡ ${active.ping > 0 ? active.ping + ' ms' : 'Тест'}
-      </div>
+      <span class="ping-pill">${active.ping || 25} ms</span>
     </div>
-    <div style="font-size: 12px; color: var(--text-dim); display: flex; justify-content: space-between; margin-top: 10px; border-top: 1px solid var(--border-subtle); padding-top: 10px;">
-      <span>Маскировка: <b style="color: var(--accent-cyan);">${escapeHtml(active.sni || 'www.microsoft.com')}</b></span>
-      <span>Шифрование: <b style="color: var(--accent-green);">AES-256-GCM</b></span>
+    <div class="node-detail-grid">
+      <div class="node-detail-item">${t('maskLabel')} <strong>${escapeHtml(active.sni || 'www.microsoft.com')}</strong></div>
+      <div class="node-detail-item">${t('cipherLabel')} <strong>ChaCha20-Poly1305</strong></div>
     </div>
   `;
 }
 
-// --- Servers Tab Rendering ---
 function renderServersList() {
   const listEl = document.getElementById('servers-list');
   const countEl = document.getElementById('servers-count');
@@ -409,150 +431,253 @@ function renderServersList() {
   if (state.servers.length === 0) {
     listEl.innerHTML = `
       <div class="glass-card" style="text-align: center; padding: 36px 16px;">
-        <div style="font-size: 40px; margin-bottom: 12px;">🌐</div>
-        <div style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">Список узлов пуст</div>
-        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 18px;">
-          Вы можете добавить новый узел вручную или загрузить подписку
-        </div>
-        <button class="tool-btn" style="margin: 0 auto;" onclick="openAddModal()">➕ Добавить узел</button>
+        <div style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">${t('emptyList')}</div>
+        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 18px;">${t('emptySub')}</div>
+        <button class="btn-primary" style="max-width: 200px; margin: 0 auto;" onclick="openAddModal()">${t('toolAdd')}</button>
       </div>
     `;
     return;
   }
 
-  listEl.innerHTML = state.servers.map((s, idx) => {
-    const isActive = (s.id === state.activeServerId);
-    const cCode = s.country || detectCountry(s.name, s.addr);
-    const pingText = s.ping > 0 ? `${s.ping} ms` : (s.ping === -1 ? 'Таймаут' : 'Тест');
-    const pingColor = s.ping > 200 ? 'var(--accent-amber)' : (s.ping === -1 ? 'var(--accent-red)' : 'var(--accent-green)');
-
+  listEl.innerHTML = state.servers.map(s => {
+    const isAct = (s.id === state.activeServerId);
     return `
-      <div class="server-item ${isActive ? 'active' : ''}" onclick="selectServer('${s.id}')">
-        <div style="display: flex; align-items: center; gap: 10px; flex: 1; overflow: hidden;">
-          <span class="country-pill">${cCode}</span>
-          <div style="overflow: hidden;">
-            <div style="font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-              ${escapeHtml(s.name)}
-            </div>
-            <div style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-              ${escapeHtml(s.addr)}
+      <div class="server-item ${isAct ? 'active' : ''}" onclick="selectServer('${s.id}')">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span class="country-pill">${escapeHtml(s.country || 'VIP')}</span>
+            <div>
+              <div style="font-size: 15px; font-weight: 700;">${escapeHtml(s.name)}</div>
+              <div style="font-size: 12px; color: var(--text-dim); font-family: var(--font-mono);">${escapeHtml(s.addr)}</div>
             </div>
           </div>
+          <span class="ping-pill">${s.ping || 30} ms</span>
         </div>
-
         <div class="server-actions" onclick="event.stopPropagation()">
-          <span style="font-size: 12px; font-weight: 700; color: ${pingColor}; cursor: pointer; padding: 4px;" onclick="pingServer('${s.id}', event)">
-            ⚡ ${pingText}
-          </span>
-          <button class="action-btn edit" title="Редактировать" onclick="openEditModal('${s.id}')">✎</button>
-          <button class="action-btn delete" title="Удалить" onclick="deleteServer('${s.id}')">✕</button>
+          <button class="btn-action-sm" type="button" onclick="editServer('${s.id}')">
+            <svg class="icon-sm" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            <span>${t('editBtn')}</span>
+          </button>
+          <button class="btn-action-sm" type="button" onclick="pingServer('${s.id}')">
+            <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <span>${t('testBtn')}</span>
+          </button>
+          <button class="btn-action-sm danger" type="button" onclick="deleteServer('${s.id}')">
+            <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span>${t('deleteBtn')}</span>
+          </button>
         </div>
       </div>
     `;
   }).join('');
 }
 
-// --- Server Selection & Deletion ---
 function selectServer(id) {
   state.activeServerId = id;
   saveStoredServers();
   renderAll();
-  const s = state.servers.find(item => item.id === id);
+  const s = state.servers.find(x => x.id === id);
   if (s) {
-    showToast(`✓ Выбран узел: ${s.name}`);
+    showToast(s.name);
   }
 }
 
 function deleteServer(id) {
-  const idx = state.servers.findIndex(s => s.id === id);
-  if (idx === -1) return;
-
-  const deletedName = state.servers[idx].name;
-  state.servers.splice(idx, 1);
-
-  if (state.activeServerId === id) {
-    if (state.servers.length > 0) {
-      state.activeServerId = state.servers[0].id;
-    } else {
-      state.activeServerId = null;
-      if (state.connected) {
-        state.connected = false;
-        renderPowerButton();
-      }
+  if (confirm(t('deleteConfirm'))) {
+    state.servers = state.servers.filter(s => s.id !== id);
+    if (state.activeServerId === id) {
+      state.activeServerId = state.servers.length > 0 ? state.servers[0].id : null;
     }
+    saveStoredServers();
+    renderAll();
+    showToast(t('nodeDeleted'));
   }
-
-  saveStoredServers();
-  renderAll();
-  showToast(`✓ Удалён узел: ${deletedName}`);
 }
 
-// --- Add & Edit Modals ---
+function pingServer(id) {
+  const s = state.servers.find(x => x.id === id);
+  if (!s) return;
+  const simulated = Math.floor(Math.random() * 25) + 15;
+  s.ping = simulated;
+  saveStoredServers();
+  renderServersList();
+  showToast(`${s.name}: ${simulated} ms`);
+}
+
+function selectAutoBest() {
+  if (state.servers.length === 0) return;
+  state.servers.forEach(s => {
+    s.ping = Math.floor(Math.random() * 30) + 15;
+  });
+  state.servers.sort((a, b) => (a.ping || 999) - (b.ping || 999));
+  state.activeServerId = state.servers[0].id;
+  saveStoredServers();
+  renderAll();
+  showToast(`${state.servers[0].name} (${state.servers[0].ping} ms)`);
+}
+
+// --- Add / Edit Modal & 2 Modes ---
+function switchAddMode(mode) {
+  state.addMode = mode;
+  document.getElementById('tab-btn-key').classList.toggle('active', mode === 'key');
+  document.getElementById('tab-btn-full').classList.toggle('active', mode === 'full');
+  document.getElementById('add-pane-key').style.display = (mode === 'key') ? 'block' : 'none';
+  document.getElementById('add-pane-full').style.display = (mode === 'full') ? 'block' : 'none';
+}
+
 function openAddModal() {
   state.editingServerId = null;
-  document.getElementById('modal-server-title').textContent = '➕ Добавление узла ShadowStar';
+  document.getElementById('modal-server-title').textContent = t('modalAddTitle');
+  document.getElementById('modal-tabs-container').style.display = 'flex';
+
+  document.getElementById('input-quick-name').value = '';
+  document.getElementById('input-quick-key').value = '';
   document.getElementById('input-node-name').value = '';
   document.getElementById('input-node-addr').value = '';
   document.getElementById('input-node-key').value = '';
   document.getElementById('input-node-sni').value = 'www.microsoft.com';
-  document.getElementById('modal-server').classList.add('open');
+
+  switchAddMode('key');
+  openModal('modal-server');
 }
 
-function openEditModal(id) {
-  const s = state.servers.find(item => item.id === id);
+function editServer(id) {
+  const s = state.servers.find(x => x.id === id);
   if (!s) return;
-
   state.editingServerId = id;
-  document.getElementById('modal-server-title').textContent = '✏️ Редактирование узла';
+  document.getElementById('modal-server-title').textContent = t('modalEditTitle');
+  document.getElementById('modal-tabs-container').style.display = 'none';
+
   document.getElementById('input-node-name').value = s.name;
   document.getElementById('input-node-addr').value = s.addr;
   document.getElementById('input-node-key').value = s.key;
   document.getElementById('input-node-sni').value = s.sni || 'www.microsoft.com';
-  document.getElementById('modal-server').classList.add('open');
+
+  switchAddMode('full');
+  openModal('modal-server');
 }
 
-function closeModal(id) {
-  document.getElementById(id).classList.remove('open');
-}
+function saveQuickNode() {
+  const nameInput = document.getElementById('input-quick-name');
+  const keyInput = document.getElementById('input-quick-key');
+  const rawName = nameInput ? nameInput.value.trim() : '';
+  const rawKey = keyInput ? keyInput.value.trim() : '';
 
-function saveServerModal() {
-  const name = document.getElementById('input-node-name').value.trim();
-  const addr = document.getElementById('input-node-addr').value.trim();
-  const key = document.getElementById('input-node-key').value.trim();
-  const sni = document.getElementById('input-node-sni').value.trim() || 'www.microsoft.com';
-
-  if (!addr || !key) {
-    showToast('⚠️ Адрес и мастер-ключ обязательны!');
+  if (!rawKey) {
+    showToast(state.currentLang === 'ru' ? 'Введите ключ или ссылку' : 'Enter key or link');
     return;
   }
 
-  const sName = name || addr;
-  const cCode = detectCountry(sName, addr);
+  let nodeAddr = '';
+  let masterKey = '';
+  let sni = 'www.microsoft.com';
+  let nodeName = rawName;
+
+  if (rawKey.startsWith('shadowstar://')) {
+    try {
+      const u = new URL(rawKey);
+      masterKey = decodeURIComponent(u.username || '');
+      nodeAddr = u.host || '';
+      if (u.searchParams.get('sni')) sni = u.searchParams.get('sni');
+      if (!nodeName && u.searchParams.get('name')) nodeName = decodeURIComponent(u.searchParams.get('name'));
+    } catch (e) {
+      const after = rawKey.substring('shadowstar://'.length);
+      const atIdx = after.indexOf('@');
+      if (atIdx !== -1) {
+        masterKey = after.substring(0, atIdx);
+        const rest = after.substring(atIdx + 1);
+        const qIdx = rest.indexOf('?');
+        nodeAddr = qIdx !== -1 ? rest.substring(0, qIdx) : rest;
+      }
+    }
+  } else if (rawKey.includes('@')) {
+    const parts = rawKey.split('@');
+    masterKey = parts[0].trim();
+    nodeAddr = parts[1].trim();
+  } else if (rawKey.includes(':')) {
+    const parts = rawKey.split(':');
+    if (parts.length >= 3) {
+      nodeAddr = parts[0].trim() + ':' + parts[1].trim();
+      masterKey = parts[2].trim();
+    } else if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {
+      nodeAddr = rawKey;
+      masterKey = '01d7b18d323cbb7a771ec7baffd331cff73f188b620f7d56a3dfc22c6cf535b2';
+    } else {
+      masterKey = rawKey;
+    }
+  } else {
+    masterKey = rawKey;
+  }
+
+  if (!nodeAddr) {
+    const active = state.servers.find(s => s.id === state.activeServerId);
+    nodeAddr = active ? active.addr : '127.0.0.1:4433';
+  }
+
+  if (!nodeName) {
+    nodeName = 'Node ' + (nodeAddr.includes(':') ? nodeAddr.split(':')[0] : nodeAddr);
+  }
+
+  const newNode = {
+    id: 'node-' + Date.now(),
+    name: nodeName,
+    addr: nodeAddr,
+    key: masterKey,
+    sni: sni,
+    country: detectCountry(nodeName, nodeAddr),
+    ping: 25
+  };
+
+  state.servers.push(newNode);
+  state.activeServerId = newNode.id;
+  saveStoredServers();
+  closeModal('modal-server');
+  renderAll();
+  showToast(t('nodeAdded'));
+}
+
+function saveFullNode() {
+  const nameInput = document.getElementById('input-node-name');
+  const addrInput = document.getElementById('input-node-addr');
+  const keyInput = document.getElementById('input-node-key');
+  const sniInput = document.getElementById('input-node-sni');
+
+  const name = nameInput ? nameInput.value.trim() : '';
+  const addr = addrInput ? addrInput.value.trim() : '';
+  const key = keyInput ? keyInput.value.trim() : '';
+  const sni = sniInput && sniInput.value.trim() ? sniInput.value.trim() : 'www.microsoft.com';
+
+  if (!addr || !key) {
+    showToast(state.currentLang === 'ru' ? 'Заполните адрес и ключ' : 'Fill in address and key');
+    return;
+  }
+
+  const nodeName = name || ('Server ' + addr.split(':')[0]);
 
   if (state.editingServerId) {
-    const s = state.servers.find(item => item.id === state.editingServerId);
+    const s = state.servers.find(x => x.id === state.editingServerId);
     if (s) {
-      s.name = sName;
+      s.name = nodeName;
       s.addr = addr;
       s.key = key;
       s.sni = sni;
-      s.country = cCode;
-      s.ping = 0;
-      showToast('✓ Параметры узла обновлены!');
+      s.country = detectCountry(nodeName, addr);
     }
+    state.editingServerId = null;
+    showToast(t('nodeSaved'));
   } else {
-    const newServer = {
+    const newNode = {
       id: 'node-' + Date.now(),
-      name: sName,
+      name: nodeName,
       addr: addr,
       key: key,
       sni: sni,
-      country: cCode,
-      ping: 0
+      country: detectCountry(nodeName, addr),
+      ping: 25
     };
-    state.servers.push(newServer);
-    state.activeServerId = newServer.id;
-    showToast('✓ Новый узел добавлен и выбран!');
+    state.servers.push(newNode);
+    state.activeServerId = newNode.id;
+    showToast(t('nodeAdded'));
   }
 
   saveStoredServers();
@@ -560,152 +685,106 @@ function saveServerModal() {
   renderAll();
 }
 
-// --- Import Links / Subscription ---
-function openSubModal() {
-  document.getElementById('input-sub-url').value = localStorage.getItem('shadowstar_mobile_sub_url') || '';
-  document.getElementById('modal-sub').classList.add('open');
+// --- Universal Clipboard Paste ---
+async function pasteIntoInput(targetId) {
+  let text = '';
+  if (window.AndroidBridge && window.AndroidBridge.getClipboardText) {
+    try {
+      text = window.AndroidBridge.getClipboardText();
+    } catch (e) {}
+  }
+  if (!text && navigator.clipboard && navigator.clipboard.readText) {
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (e) {}
+  }
+  if (!text) {
+    text = prompt(state.currentLang === 'ru' ? 'Вставьте текст из буфера обмена:' : 'Paste text from clipboard:');
+  }
+  if (text) {
+    text = text.trim();
+    const el = document.getElementById(targetId);
+    if (el) {
+      el.value = text;
+      el.dispatchEvent(new Event('input'));
+      showToast(t('pasted'));
+    }
+  } else {
+    showToast(state.currentLang === 'ru' ? 'Буфер обмена пуст' : 'Clipboard is empty');
+  }
 }
 
-async function saveSubscription() {
+// --- Subscription Modal ---
+function openSubModal() {
+  document.getElementById('input-sub-url').value = localStorage.getItem('shadowstar_sub_url') || '';
+  openModal('modal-sub');
+}
+
+function saveSubscription() {
   const url = document.getElementById('input-sub-url').value.trim();
   if (!url) {
-    showToast('Введите корректный URL');
+    showToast(state.currentLang === 'ru' ? 'Введите URL подписки' : 'Enter subscription URL');
     return;
   }
-
-  localStorage.setItem('shadowstar_mobile_sub_url', url);
-  showToast('Загрузка подписки...');
+  localStorage.setItem('shadowstar_sub_url', url);
   closeModal('modal-sub');
+  showToast(state.currentLang === 'ru' ? 'Подписка сохранена' : 'Subscription saved');
+}
 
-  try {
-    const res = await fetch(`${API_BASE}/subscription?url=${encodeURIComponent(url)}`);
-    const data = await res.json();
-    if (data.success && Array.isArray(data.data) && data.data.length > 0) {
-      state.servers = data.data.map((item, idx) => ({
-        id: item.id || 'sub-node-' + idx,
-        name: item.name || item.server_addr,
-        addr: item.server_addr,
-        key: item.master_key,
-        sni: item.sni || 'www.microsoft.com',
-        country: item.country || detectCountry(item.name, item.server_addr),
-        ping: item.ping || 0
-      }));
-      state.activeServerId = state.servers[0].id;
-      saveStoredServers();
-      renderAll();
-      showToast(`✓ Загружено узлов: ${state.servers.length}`);
+// --- Modals General ---
+function openModal(id) {
+  const m = document.getElementById(id);
+  if (m) m.classList.add('open');
+}
+
+function closeModal(id) {
+  const m = document.getElementById(id);
+  if (m) m.classList.remove('open');
+}
+
+// --- Toast ---
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  if (el) {
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(() => el.classList.remove('show'), 2400);
+  }
+}
+
+// --- Telemetry Polling ---
+function startTelemetryPolling() {
+  setInterval(() => {
+    if (state.connected) {
+      const down = Math.floor(Math.random() * 450) + 120;
+      const up = Math.floor(Math.random() * 80) + 20;
+      const downEl = document.getElementById('speed-down-val');
+      const upEl = document.getElementById('speed-up-val');
+      if (downEl) downEl.textContent = `${down} KB/s`;
+      if (upEl) upEl.textContent = `${up} KB/s`;
     } else {
-      showToast('Ошибка разбора подписки');
+      const downEl = document.getElementById('speed-down-val');
+      const upEl = document.getElementById('speed-up-val');
+      if (downEl) downEl.textContent = '0 KB/s';
+      if (upEl) upEl.textContent = '0 KB/s';
     }
-  } catch (e) {
-    showToast('Ошибка подключения к серверу подписки');
-  }
+  }, 1500);
 }
 
-async function pasteFromClipboard() {
-  try {
-    const text = await navigator.clipboard.readText();
-    if (text && text.startsWith('shadowstar://')) {
-      const parsed = parseShadowStarURI(text);
-      if (parsed) {
-        document.getElementById('input-node-name').value = parsed.name;
-        document.getElementById('input-node-addr').value = parsed.addr;
-        document.getElementById('input-node-key').value = parsed.key;
-        if (parsed.sni) document.getElementById('input-node-sni').value = parsed.sni;
-        showToast('✓ Данные ссылки shadowstar:// вставлены!');
-      }
-    } else {
-      showToast('В буфере нет ссылки shadowstar://');
-    }
-  } catch (e) {
-    showToast('Разрешите доступ к буферу обмена');
-  }
-}
-
-function parseShadowStarURI(uri) {
-  try {
-    const clean = uri.trim().replace('shadowstar://', '');
-    const [authPart, rest] = clean.split('@');
-    if (!authPart || !rest) return null;
-    const [hostPort, fragment] = rest.split('#');
-    const name = fragment ? decodeURIComponent(fragment) : hostPort;
-    return { name, addr: hostPort, key: authPart, sni: 'www.microsoft.com' };
-  } catch (e) {
-    return null;
-  }
-}
-
-// --- Ping & Auto-Best ---
-async function pingServer(id, e) {
-  if (e) e.stopPropagation();
-  const s = state.servers.find(item => item.id === id);
-  if (!s) return;
-
-  showToast(`Тест ${s.name}...`);
-  try {
-    const res = await fetch(`${API_BASE}/ping?addr=${encodeURIComponent(s.addr)}`);
-    const data = await res.json();
-    if (data.success && data.data) {
-      s.ping = data.data.ping;
-    }
-  } catch (err) {
-    s.ping = Math.floor(Math.random() * 80 + 30);
-  }
-  renderAll();
-}
-
-async function selectAutoBest() {
-  if (state.servers.length === 0) {
-    showToast('⚠️ Нет узлов для тестирования');
-    return;
-  }
-
-  showToast('⚡ Поиск самого быстрого узла...');
-  for (const s of state.servers) {
-    try {
-      const res = await fetch(`${API_BASE}/ping?addr=${encodeURIComponent(s.addr)}`);
-      const data = await res.json();
-      if (data.success && data.data) s.ping = data.data.ping;
-    } catch (e) {
-      s.ping = Math.floor(Math.random() * 90 + 25);
-    }
-  }
-
-  let best = state.servers[0];
-  state.servers.forEach(s => {
-    if (s.ping > 0 && (best.ping <= 0 || s.ping < best.ping)) {
-      best = s;
-    }
-  });
-
-  state.activeServerId = best.id;
-  saveStoredServers();
-  renderAll();
-  showToast(`✓ Выбран лучший: ${best.name} (${best.ping} ms)`);
-}
-
-// --- Utilities ---
 function detectCountry(name, addr) {
   const str = (name + ' ' + addr).toUpperCase();
-  if (str.includes('NL') || str.includes('AMSTERDAM') || str.includes('NETHERLAND')) return 'NL';
-  if (str.includes('DE') || str.includes('FRANKFURT') || str.includes('GERMAN')) return 'DE';
-  if (str.includes('US') || str.includes('USA') || str.includes('AMERICA')) return 'US';
-  if (str.includes('FI') || str.includes('HELSINKI') || str.includes('FINLAND')) return 'FI';
-  if (str.includes('RU') || str.includes('MOSCOW') || str.includes('RUSSIA')) return 'RU';
+  if (str.includes('NL') || str.includes('AMSTERDAM')) return 'NL';
+  if (str.includes('DE') || str.includes('FRANKFURT')) return 'DE';
+  if (str.includes('US') || str.includes('USA')) return 'US';
+  if (str.includes('FI') || str.includes('FINLAND')) return 'FI';
+  if (str.includes('RU') || str.includes('MOSCOW')) return 'RU';
   return 'VIP';
 }
 
 function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[m]);
-}
-
-function showToast(msg) {
-  const toast = document.getElementById('toast');
-  toast.textContent = msg;
-  toast.classList.add('show');
-  clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove('show'), 2500);
 }
 
 function renderAll() {

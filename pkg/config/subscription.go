@@ -203,6 +203,63 @@ func FetchSubscription(subURL string) ([]client.ServerProfile, error) {
 	return ParseSubscriptionContent(body)
 }
 
+// FetchAndApplyGroupSubscription updates servers for a specific group in Config
+func FetchAndApplyGroupSubscription(cfg *client.Config, groupID string) (int, error) {
+	cfg.EnsureGroups()
+	var grp *client.SubscriptionGroup
+	for i := range cfg.Groups {
+		if cfg.Groups[i].ID == groupID {
+			grp = &cfg.Groups[i]
+			break
+		}
+	}
+	if grp == nil {
+		return 0, errors.New("group not found")
+	}
+	if grp.URL == "" {
+		return 0, errors.New("group has no subscription URL configured")
+	}
+
+	nodes, err := FetchSubscription(grp.URL)
+	if err != nil {
+		return 0, err
+	}
+	if len(nodes) == 0 {
+		return 0, errors.New("no nodes returned in subscription")
+	}
+
+	// Tag nodes with groupID
+	for i := range nodes {
+		nodes[i].GroupID = groupID
+	}
+
+	// Keep servers from other groups
+	var kept []client.ServerProfile
+	for _, s := range cfg.Servers {
+		if s.GroupID != groupID {
+			kept = append(kept, s)
+		}
+	}
+
+	// Append newly fetched nodes for this group
+	cfg.Servers = append(kept, nodes...)
+	grp.UpdatedAt = time.Now().Unix()
+
+	// If active server was in this group and is no longer present, activate the first new node
+	activeFound := false
+	for _, s := range cfg.Servers {
+		if s.ID == cfg.ActiveID {
+			activeFound = true
+			break
+		}
+	}
+	if !activeFound && len(nodes) > 0 {
+		cfg.ActiveID = nodes[0].ID
+	}
+
+	return len(nodes), nil
+}
+
 // PingServer measures TCP round-trip latency in milliseconds
 func PingServer(addr string, timeout time.Duration) (int, error) {
 	t0 := time.Now()

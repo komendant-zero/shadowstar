@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -174,8 +175,9 @@ func TestExactLineWidthAlignment(t *testing.T) {
 		ActiveID: "srv-1",
 	}
 
+	cfgPath := filepath.Join(t.TempDir(), "test.json")
 	c, _ := client.NewClient(cfg.Servers[0], cfg.SocksAddr, cfg.HttpAddr)
-	app := New("test.json", c, cfg)
+	app := New(cfgPath, c, cfg)
 
 	widths := []int{72, 80, 84, 90, 100, 120}
 	tabs := []int{TabServers, TabLogs, TabDiagnostics}
@@ -193,5 +195,70 @@ func TestExactLineWidthAlignment(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestCategoryManagement(t *testing.T) {
+	cfg := &client.Config{
+		SocksAddr: "127.0.0.1:10808",
+		HttpAddr:  "127.0.0.1:10809",
+		Servers: []client.ServerProfile{
+			{ID: "s1", Name: "Node 1", ServerAddr: "1.1.1.1:443", MasterKey: "k1"},
+		},
+	}
+
+	cfgPath := filepath.Join(t.TempDir(), "test.json")
+	c, _ := client.NewClient(cfg.Servers[0], cfg.SocksAddr, cfg.HttpAddr)
+	app := New(cfgPath, c, cfg)
+
+	if len(app.cfg.Groups) != 1 {
+		t.Fatalf("expected 1 initial group, got %d", len(app.cfg.Groups))
+	}
+
+	// 1. Add new group
+	grp2 := app.cfg.AddGroup("Work VPN", "https://example.com/sub")
+	if len(app.cfg.Groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(app.cfg.Groups))
+	}
+	if app.cfg.ActiveGroupID != grp2.ID {
+		t.Fatalf("expected active group to be %s, got %s", grp2.ID, app.cfg.ActiveGroupID)
+	}
+
+	// 2. Add node to new group
+	app.cfg.Servers = append(app.cfg.Servers, client.ServerProfile{
+		ID:         "s2",
+		Name:       "Work Node 1",
+		ServerAddr: "2.2.2.2:443",
+		MasterKey:  "k2",
+		GroupID:    grp2.ID,
+	})
+
+	if app.cfg.GetGroupServerCount(grp2.ID) != 1 {
+		t.Fatalf("expected 1 server in grp2, got %d", app.cfg.GetGroupServerCount(grp2.ID))
+	}
+
+	// 3. Switch groups
+	app.prevGroup()
+	if app.cfg.ActiveGroupID == grp2.ID {
+		t.Fatalf("expected to switch away from grp2")
+	}
+	app.nextGroup()
+	if app.cfg.ActiveGroupID != grp2.ID {
+		t.Fatalf("expected to switch back to grp2")
+	}
+
+	// 4. Edit group
+	app.cfg.UpdateGroup(grp2.ID, "Work Premium", "https://new.com/sub")
+	if app.cfg.GetActiveGroup().Name != "Work Premium" {
+		t.Fatalf("expected updated name, got %s", app.cfg.GetActiveGroup().Name)
+	}
+
+	// 5. Delete group
+	app.cfg.DeleteGroup(grp2.ID)
+	if len(app.cfg.Groups) != 1 {
+		t.Fatalf("expected 1 group remaining, got %d", len(app.cfg.Groups))
+	}
+	if len(app.cfg.Servers) != 1 {
+		t.Fatalf("expected 1 server remaining, got %d", len(app.cfg.Servers))
 	}
 }

@@ -215,21 +215,52 @@ func (t *TUI) renderTabBar(w int) string {
 	}
 
 	left := fmt.Sprintf(" %s %s %s", tab1, tab2, tab3)
-	right := Gray(fmt.Sprintf("%d "+i18n.T("узлов", "nodes")+" ", len(t.cfg.Servers)))
+	right := Gray(fmt.Sprintf("%d "+i18n.T("групп", "groups")+" • %d "+i18n.T("узлов", "nodes")+" ", len(t.cfg.Groups), len(t.cfg.Servers)))
 	sb.WriteString(t.formatLine(left, right, w))
 	sb.WriteString("\n├" + strings.Repeat("─", w) + "┤")
 	return sb.String()
 }
 
+func (t *TUI) renderCategoryBar(w int) string {
+	t.cfg.EnsureGroups()
+	var items []string
+	for _, g := range t.cfg.Groups {
+		cnt := t.cfg.GetGroupServerCount(g.ID)
+		if g.ID == t.cfg.ActiveGroupID {
+			items = append(items, BrightCyan(Bold(fmt.Sprintf("[%s (%d)]", g.Name, cnt))))
+		} else {
+			items = append(items, Gray(fmt.Sprintf("[%s (%d)]", g.Name, cnt)))
+		}
+	}
+	left := " " + Cyan(i18n.T("Группы:", "Groups:")) + " " + strings.Join(items, Dim(" | "))
+	right := BrightYellow(i18n.T("[N] +Новая ", "[N] +New "))
+	return t.formatLine(left, right, w)
+}
+
 func (t *TUI) renderServersList(w, h int) string {
 	var sb strings.Builder
 
-	servers := t.cfg.Servers
+	// 1. Render Category Bar
+	sb.WriteString(t.renderCategoryBar(w))
+	sb.WriteString("\n├" + strings.Repeat("─", w) + "┤\n")
+
+	// Adjust remaining rows height for server list
+	serverH := h - 2
+	if serverH < 4 {
+		serverH = 4
+	}
+
+	servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
 	if len(servers) == 0 {
-		emptyMsg := i18n.T("Список серверов пуст. Нажмите [A] чтобы добавить узел или [U] для подписки.",
-			"No servers configured. Press [A] to add a node or [U] for subscription.")
-		for i := 0; i < h; i++ {
-			if i == h/2 {
+		grp := t.cfg.GetActiveGroup()
+		grpName := "Основная"
+		if grp != nil {
+			grpName = grp.Name
+		}
+		emptyMsg := fmt.Sprintf(i18n.T("В группе «%s» нет серверов. Нажмите [U] или [A].",
+			"No servers in group «%s». Press [U] or [A]."), grpName)
+		for i := 0; i < serverH; i++ {
+			if i == serverH/2 {
 				sb.WriteString("│" + Center(Yellow(emptyMsg), w) + "│\n")
 			} else {
 				sb.WriteString("│" + strings.Repeat(" ", w) + "│\n")
@@ -250,8 +281,8 @@ func (t *TUI) renderServersList(w, h int) string {
 	if t.selectedIdx < t.scrollOffset {
 		t.scrollOffset = t.selectedIdx
 	}
-	if t.selectedIdx >= t.scrollOffset+h {
-		t.scrollOffset = t.selectedIdx - h + 1
+	if t.selectedIdx >= t.scrollOffset+serverH {
+		t.scrollOffset = t.selectedIdx - serverH + 1
 	}
 
 	// Fixed width columns:
@@ -276,7 +307,7 @@ func (t *TUI) renderServersList(w, h int) string {
 	sniColW := rem - nameColW - addrColW
 
 	// Render rows
-	for i := 0; i < h; i++ {
+	for i := 0; i < serverH; i++ {
 		idx := t.scrollOffset + i
 		if idx >= len(servers) {
 			sb.WriteString("│" + strings.Repeat(" ", w) + "│\n")
@@ -459,26 +490,26 @@ func (t *TUI) renderToastLine(w int) string {
 func (t *TUI) renderFooter(w int) string {
 	var sb strings.Builder
 
+	grpKey := BrightCyan("[←/→]")
+	grpText := i18n.T("Группа", "Group")
+
 	cKey := BrightCyan("[C]")
 	cText := i18n.T("Туннель", "Tunnel")
 
-	fKey := BrightCyan("[F]")
-	fText := i18n.T("Быстрый", "Fastest")
+	uKey := BrightCyan("[U]")
+	uText := i18n.T("Синхр", "Sync")
+
+	eKey := BrightCyan("[E]")
+	eText := i18n.T("Изм", "Edit")
+
+	xKey := BrightCyan("[X]")
+	xText := i18n.T("Удал", "Del")
+
+	aKey := BrightCyan("[A]")
+	aText := i18n.T("Узел", "Node")
 
 	pKey := BrightCyan("[P]")
 	pText := i18n.T("Пинг", "Ping")
-
-	sKey := BrightCyan("[S]")
-	sText := i18n.T("Прокси", "Proxy")
-
-	aKey := BrightCyan("[A]")
-	aText := i18n.T("Добавить", "Add")
-
-	dKey := BrightCyan("[D]")
-	dText := i18n.T("Удалить", "Delete")
-
-	uKey := BrightCyan("[U]")
-	uText := i18n.T("Подписка", "Sub")
 
 	tabKey := BrightCyan("[Tab]")
 	tabText := i18n.T("Язык", "Lang")
@@ -487,14 +518,14 @@ func (t *TUI) renderFooter(w int) string {
 	qText := i18n.T("Выход", "Quit")
 
 	var items []string
+	items = append(items, grpKey+" "+grpText)
 	items = append(items, cKey+" "+cText)
-	items = append(items, fKey+" "+fText)
-	items = append(items, pKey+" "+pText)
-	items = append(items, sKey+" "+sText)
+	items = append(items, uKey+" "+uText)
+	items = append(items, eKey+" "+eText)
+	items = append(items, xKey+" "+xText)
 	items = append(items, aKey+" "+aText)
-	if w >= 88 {
-		items = append(items, dKey+" "+dText)
-		items = append(items, uKey+" "+uText)
+	if w >= 90 {
+		items = append(items, pKey+" "+pText)
 	}
 	items = append(items, tabKey+" "+tabText)
 	items = append(items, qKey+" "+qText)
@@ -539,6 +570,74 @@ func (t *TUI) overlayModal(bg string, totalW, totalH int) string {
 	modalInnerW := modalW - 2
 
 	switch t.modal {
+	case ModalAddGroup:
+		modalLines[0] = "┌" + strings.Repeat("─", modalInnerW) + "┐"
+		modalLines[1] = "│" + Center(BrightCyan(Bold(i18n.T("НОВАЯ КАТЕГОРИЯ ПОДПИСКИ", "NEW SUBSCRIPTION CATEGORY"))), modalInnerW) + "│"
+		modalLines[2] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+		if t.modalStep == 0 {
+			modalLines[3] = "│ " + PadRight(i18n.T("Введите название категории (например, «FastVPN»):", "Enter category name (e.g. «FastVPN»):"), modalInnerW-1) + "│"
+			inputStr := t.modalInput + "_"
+			modalLines[4] = "│ " + PadRight(BrightYellow(Truncate(inputStr, modalInnerW-2)), modalInnerW-1) + "│"
+			errMsg := ""
+			if t.modalError != "" {
+				errMsg = BrightRed(t.modalError)
+			}
+			modalLines[5] = "│ " + PadRight(errMsg, modalInnerW-1) + "│"
+			modalLines[6] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+			modalLines[7] = "│" + Center(Gray(i18n.T("[Enter] Далее  |  [Esc] Отмена", "[Enter] Next  |  [Esc] Cancel")), modalInnerW) + "│"
+		} else {
+			modalLines[3] = "│ " + PadRight(fmt.Sprintf(i18n.T("Категория: «%s»", "Category: «%s»"), t.tempGroupName), modalInnerW-1) + "│"
+			modalLines[4] = "│ " + PadRight(i18n.T("URL подписки (HTTPS, или пусто для ручных):", "Subscription URL (HTTPS, or blank for manual):"), modalInnerW-1) + "│"
+			inputStr := t.modalInput + "_"
+			modalLines[5] = "│ " + PadRight(BrightYellow(Truncate(inputStr, modalInnerW-2)), modalInnerW-1) + "│"
+			modalLines[6] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+			modalLines[7] = "│" + Center(Gray(i18n.T("[Enter] Создать и загрузить  |  [Esc] Отмена", "[Enter] Save & Fetch  |  [Esc] Cancel")), modalInnerW) + "│"
+		}
+		modalLines[8] = "└" + strings.Repeat("─", modalInnerW) + "┘"
+
+	case ModalEditGroup:
+		modalLines[0] = "┌" + strings.Repeat("─", modalInnerW) + "┐"
+		modalLines[1] = "│" + Center(BrightCyan(Bold(i18n.T("РЕДАКТИРОВАНИЕ КАТЕГОРИИ", "EDIT CATEGORY"))), modalInnerW) + "│"
+		modalLines[2] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+		if t.modalStep == 0 {
+			modalLines[3] = "│ " + PadRight(i18n.T("Название категории:", "Category name:"), modalInnerW-1) + "│"
+			inputStr := t.modalInput + "_"
+			modalLines[4] = "│ " + PadRight(BrightYellow(Truncate(inputStr, modalInnerW-2)), modalInnerW-1) + "│"
+			errMsg := ""
+			if t.modalError != "" {
+				errMsg = BrightRed(t.modalError)
+			}
+			modalLines[5] = "│ " + PadRight(errMsg, modalInnerW-1) + "│"
+			modalLines[6] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+			modalLines[7] = "│" + Center(Gray(i18n.T("[Enter] Далее  |  [Esc] Отмена", "[Enter] Next  |  [Esc] Cancel")), modalInnerW) + "│"
+		} else {
+			modalLines[3] = "│ " + PadRight(fmt.Sprintf(i18n.T("Категория: «%s»", "Category: «%s»"), t.tempGroupName), modalInnerW-1) + "│"
+			modalLines[4] = "│ " + PadRight(i18n.T("URL подписки (HTTPS, или пусто для ручных):", "Subscription URL (HTTPS, or blank for manual):"), modalInnerW-1) + "│"
+			inputStr := t.modalInput + "_"
+			modalLines[5] = "│ " + PadRight(BrightYellow(Truncate(inputStr, modalInnerW-2)), modalInnerW-1) + "│"
+			modalLines[6] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+			modalLines[7] = "│" + Center(Gray(i18n.T("[Enter] Сохранить  |  [Esc] Отмена", "[Enter] Save  |  [Esc] Cancel")), modalInnerW) + "│"
+		}
+		modalLines[8] = "└" + strings.Repeat("─", modalInnerW) + "┘"
+
+	case ModalDeleteGroup:
+		grp := t.cfg.GetActiveGroup()
+		grpName := "Категория"
+		cnt := 0
+		if grp != nil {
+			grpName = grp.Name
+			cnt = t.cfg.GetGroupServerCount(grp.ID)
+		}
+		modalLines[0] = "┌" + strings.Repeat("─", modalInnerW) + "┐"
+		modalLines[1] = "│" + Center(BrightRed(Bold(i18n.T("УДАЛЕНИЕ КАТЕГОРИИ", "DELETE CATEGORY"))), modalInnerW) + "│"
+		modalLines[2] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+		modalLines[3] = "│" + Center(i18n.T("Удалить категорию и все входящие узлы?", "Delete category and all its nodes?"), modalInnerW) + "│"
+		modalLines[4] = "│" + Center(BrightYellow(fmt.Sprintf("«%s» (%d "+i18n.T("узлов", "nodes")+")", grpName, cnt)), modalInnerW) + "│"
+		modalLines[5] = "│" + Center(Gray(i18n.T("Это действие нельзя отменить", "This action cannot be undone")), modalInnerW) + "│"
+		modalLines[6] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+		modalLines[7] = "│" + Center(i18n.T("[Y] Удалить  |  [N/Esc] Отмена", "[Y] Delete  |  [N/Esc] Cancel"), modalInnerW) + "│"
+		modalLines[8] = "└" + strings.Repeat("─", modalInnerW) + "┘"
+
 	case ModalAddNode:
 		modalLines[0] = "┌" + strings.Repeat("─", modalInnerW) + "┐"
 		modalLines[1] = "│" + Center(BrightCyan(Bold(i18n.T("ДОБАВЛЕНИЕ УЗЛА (SHADOWSTAR)", "ADD SHADOWSTAR NODE"))), modalInnerW) + "│"

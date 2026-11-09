@@ -32,15 +32,167 @@ type ServerProfile struct {
 	Ping          int    `json:"ping"`           // ms latency
 	TimeOffset    int64  `json:"time_offset"`    // clock drift correction in seconds
 	Country       string `json:"country,omitempty"` // e.g. "NL", "DE", "US"
+	GroupID       string `json:"group_id,omitempty"` // category / subscription group ID
+}
+
+// SubscriptionGroup represents a category of servers or an external subscription
+type SubscriptionGroup struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	URL       string `json:"url,omitempty"`
+	UpdatedAt int64  `json:"updated_at,omitempty"`
 }
 
 // Config holds client operational settings
 type Config struct {
-	SocksAddr       string          `json:"socks_addr"` // "127.0.0.1:10808"
-	HttpAddr        string          `json:"http_addr"`  // "127.0.0.1:10809"
-	SubscriptionURL string          `json:"subscription_url,omitempty"`
-	Servers         []ServerProfile `json:"servers"`
-	ActiveID        string          `json:"active_id"`
+	SocksAddr       string              `json:"socks_addr"` // "127.0.0.1:10808"
+	HttpAddr        string              `json:"http_addr"`  // "127.0.0.1:10809"
+	SubscriptionURL string              `json:"subscription_url,omitempty"`
+	Groups          []SubscriptionGroup `json:"groups,omitempty"`
+	ActiveGroupID   string              `json:"active_group_id,omitempty"`
+	Servers         []ServerProfile     `json:"servers"`
+	ActiveID        string              `json:"active_id"`
+}
+
+// EnsureGroups ensures there is at least one group and migrates ungrouped servers
+func (c *Config) EnsureGroups() {
+	if len(c.Groups) == 0 {
+		defaultName := "Основная"
+		if c.SubscriptionURL != "" {
+			defaultName = "Подписка"
+		}
+		c.Groups = []SubscriptionGroup{
+			{
+				ID:        "group-default",
+				Name:      defaultName,
+				URL:       c.SubscriptionURL,
+				UpdatedAt: time.Now().Unix(),
+			},
+		}
+		c.ActiveGroupID = "group-default"
+	}
+	if c.ActiveGroupID == "" && len(c.Groups) > 0 {
+		c.ActiveGroupID = c.Groups[0].ID
+	}
+	defaultID := c.Groups[0].ID
+	for i := range c.Servers {
+		if c.Servers[i].GroupID == "" {
+			c.Servers[i].GroupID = defaultID
+		}
+	}
+}
+
+// GetActiveGroup returns pointer to the currently active group
+func (c *Config) GetActiveGroup() *SubscriptionGroup {
+	c.EnsureGroups()
+	for i := range c.Groups {
+		if c.Groups[i].ID == c.ActiveGroupID {
+			return &c.Groups[i]
+		}
+	}
+	if len(c.Groups) > 0 {
+		c.ActiveGroupID = c.Groups[0].ID
+		return &c.Groups[0]
+	}
+	return nil
+}
+
+// GetServersInGroup returns slice of servers belonging to groupID
+func (c *Config) GetServersInGroup(groupID string) []ServerProfile {
+	c.EnsureGroups()
+	var res []ServerProfile
+	for _, s := range c.Servers {
+		if s.GroupID == groupID {
+			res = append(res, s)
+		}
+	}
+	return res
+}
+
+// GetGroupServerCount returns how many servers are in groupID
+func (c *Config) GetGroupServerCount(groupID string) int {
+	count := 0
+	for _, s := range c.Servers {
+		if s.GroupID == groupID {
+			count++
+		}
+	}
+	return count
+}
+
+// AddGroup creates a new group and sets it as active
+func (c *Config) AddGroup(name, subURL string) *SubscriptionGroup {
+	c.EnsureGroups()
+	if name == "" {
+		name = fmt.Sprintf("Группа %d", len(c.Groups)+1)
+	}
+	grp := SubscriptionGroup{
+		ID:        fmt.Sprintf("group-%d", time.Now().UnixNano()),
+		Name:      name,
+		URL:       subURL,
+		UpdatedAt: time.Now().Unix(),
+	}
+	c.Groups = append(c.Groups, grp)
+	c.ActiveGroupID = grp.ID
+	return &c.Groups[len(c.Groups)-1]
+}
+
+// UpdateGroup modifies group name and URL
+func (c *Config) UpdateGroup(groupID, newName, newURL string) bool {
+	c.EnsureGroups()
+	for i := range c.Groups {
+		if c.Groups[i].ID == groupID {
+			if newName != "" {
+				c.Groups[i].Name = newName
+			}
+			c.Groups[i].URL = newURL
+			c.Groups[i].UpdatedAt = time.Now().Unix()
+			return true
+		}
+	}
+	return false
+}
+
+// DeleteGroup removes a group and all its servers
+func (c *Config) DeleteGroup(groupID string) bool {
+	c.EnsureGroups()
+	if len(c.Groups) <= 1 {
+		// Cannot delete the only remaining group; reset it instead
+		c.Groups[0].Name = "Основная"
+		c.Groups[0].URL = ""
+		c.Groups[0].UpdatedAt = time.Now().Unix()
+		var remaining []ServerProfile
+		for _, s := range c.Servers {
+			if s.GroupID != groupID {
+				remaining = append(remaining, s)
+			}
+		}
+		c.Servers = remaining
+		return true
+	}
+
+	// Remove servers belonging to this group
+	var remaining []ServerProfile
+	for _, s := range c.Servers {
+		if s.GroupID != groupID {
+			remaining = append(remaining, s)
+		}
+	}
+	c.Servers = remaining
+
+	// Remove group from slice
+	var newGroups []SubscriptionGroup
+	for _, g := range c.Groups {
+		if g.ID != groupID {
+			newGroups = append(newGroups, g)
+		}
+	}
+	c.Groups = newGroups
+
+	if c.ActiveGroupID == groupID {
+		c.ActiveGroupID = c.Groups[0].ID
+	}
+	return true
 }
 
 // Stats holds real-time network telemetry

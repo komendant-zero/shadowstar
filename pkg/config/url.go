@@ -126,6 +126,7 @@ func LoadClientConfig(path string) (*client.Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+	cfg.EnsureGroups()
 	return &cfg, nil
 }
 

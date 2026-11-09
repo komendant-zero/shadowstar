@@ -26,6 +26,9 @@ const (
 	ModalAddNode
 	ModalSubURL
 	ModalConfirmDelete
+	ModalAddGroup
+	ModalEditGroup
+	ModalDeleteGroup
 )
 
 type TUI struct {
@@ -37,11 +40,13 @@ type TUI struct {
 	scrollOffset int
 
 	// Modals & User input
-	modal      int
-	modalInput string
-	modalError string
-	toastMsg   string
-	toastTimer int
+	modal         int
+	modalStep     int
+	tempGroupName string
+	modalInput    string
+	modalError    string
+	toastMsg      string
+	toastTimer    int
 
 	// Telemetry & metrics
 	stats          client.Stats
@@ -55,6 +60,7 @@ type TUI struct {
 }
 
 func New(cfgPath string, c *client.Client, cfg *client.Config) *TUI {
+	cfg.EnsureGroups()
 	t := &TUI{
 		client:         c,
 		cfg:            cfg,
@@ -66,8 +72,9 @@ func New(cfgPath string, c *client.Client, cfg *client.Config) *TUI {
 		sysProxyStatus: sysproxy.GetSystemProxyStatus(),
 	}
 
-	// Match initial selection to active server
-	for i, s := range cfg.Servers {
+	// Match initial selection to active server within active group
+	activeGroupServers := cfg.GetServersInGroup(cfg.ActiveGroupID)
+	for i, s := range activeGroupServers {
 		if s.ID == cfg.ActiveID {
 			t.selectedIdx = i
 			break
@@ -202,6 +209,14 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 		i18n.ToggleLang()
 		return false
 
+	case KeyLeft:
+		t.prevGroup()
+		return false
+
+	case KeyRight:
+		t.nextGroup()
+		return false
+
 	case KeyUp:
 		if t.selectedIdx > 0 {
 			t.selectedIdx--
@@ -209,7 +224,8 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 		return false
 
 	case KeyDown:
-		if t.selectedIdx < len(t.cfg.Servers)-1 {
+		servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
+		if t.selectedIdx < len(servers)-1 {
 			t.selectedIdx++
 		}
 		return false
@@ -222,9 +238,13 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 		return false
 
 	case KeyPageDown:
+		servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
 		t.selectedIdx += 5
-		if t.selectedIdx >= len(t.cfg.Servers) {
-			t.selectedIdx = len(t.cfg.Servers) - 1
+		if t.selectedIdx >= len(servers) {
+			t.selectedIdx = len(servers) - 1
+		}
+		if t.selectedIdx < 0 {
+			t.selectedIdx = 0
 		}
 		return false
 
@@ -233,8 +253,9 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 		return false
 
 	case KeyEnd:
-		if len(t.cfg.Servers) > 0 {
-			t.selectedIdx = len(t.cfg.Servers) - 1
+		servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
+		if len(servers) > 0 {
+			t.selectedIdx = len(servers) - 1
 		}
 		return false
 
@@ -243,7 +264,8 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 		return false
 
 	case KeyDelete:
-		if len(t.cfg.Servers) > 0 {
+		servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
+		if len(servers) > 0 {
 			t.modal = ModalConfirmDelete
 		}
 		return false
@@ -270,17 +292,50 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 			t.modalInput = ""
 			t.modalError = ""
 
-		case 'u', 'U':
-			if t.cfg.SubscriptionURL != "" {
-				t.fetchSubscription()
+		case 'n', 'N':
+			t.modal = ModalAddGroup
+			t.modalStep = 0
+			t.modalInput = ""
+			t.tempGroupName = ""
+			t.modalError = ""
+
+		case 'e', 'E':
+			grp := t.cfg.GetActiveGroup()
+			if grp != nil {
+				t.modal = ModalEditGroup
+				t.modalStep = 0
+				t.modalInput = grp.Name
+				t.tempGroupName = ""
+				t.modalError = ""
+			}
+
+		case 'x', 'X':
+			if len(t.cfg.Groups) <= 1 {
+				t.toast(i18n.T("Нельзя удалить единственную категорию!", "Cannot delete the only remaining category!"))
 			} else {
-				t.modal = ModalSubURL
+				t.modal = ModalDeleteGroup
+				t.modalError = ""
+			}
+
+		case 'u', 'U':
+			grp := t.cfg.GetActiveGroup()
+			if grp != nil && grp.URL != "" {
+				t.fetchGroupSubscription(grp.ID)
+			} else {
+				grpName := ""
+				if grp != nil {
+					grpName = grp.Name
+				}
+				t.modal = ModalEditGroup
+				t.modalStep = 1
 				t.modalInput = ""
+				t.tempGroupName = grpName
 				t.modalError = ""
 			}
 
 		case 'd', 'D':
-			if len(t.cfg.Servers) > 0 {
+			servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
+			if len(servers) > 0 {
 				t.modal = ModalConfirmDelete
 			}
 
@@ -299,13 +354,54 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 				t.selectedIdx--
 			}
 		case 'j':
-			if t.selectedIdx < len(t.cfg.Servers)-1 {
+			servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
+			if t.selectedIdx < len(servers)-1 {
 				t.selectedIdx++
 			}
+		case 'h':
+			t.prevGroup()
+		case 'l':
+			t.nextGroup()
 		}
 	}
 
 	return false
+}
+
+func (t *TUI) nextGroup() {
+	if len(t.cfg.Groups) <= 1 {
+		return
+	}
+	curIdx := 0
+	for i, g := range t.cfg.Groups {
+		if g.ID == t.cfg.ActiveGroupID {
+			curIdx = i
+			break
+		}
+	}
+	nextIdx := (curIdx + 1) % len(t.cfg.Groups)
+	t.cfg.ActiveGroupID = t.cfg.Groups[nextIdx].ID
+	t.selectedIdx = 0
+	t.scrollOffset = 0
+	_ = config.SaveClientConfig(t.cfgPath, t.cfg)
+}
+
+func (t *TUI) prevGroup() {
+	if len(t.cfg.Groups) <= 1 {
+		return
+	}
+	curIdx := 0
+	for i, g := range t.cfg.Groups {
+		if g.ID == t.cfg.ActiveGroupID {
+			curIdx = i
+			break
+		}
+	}
+	prevIdx := (curIdx - 1 + len(t.cfg.Groups)) % len(t.cfg.Groups)
+	t.cfg.ActiveGroupID = t.cfg.Groups[prevIdx].ID
+	t.selectedIdx = 0
+	t.scrollOffset = 0
+	_ = config.SaveClientConfig(t.cfgPath, t.cfg)
 }
 
 func (t *TUI) handleModalKey(key KeyEvent) bool {
@@ -313,20 +409,132 @@ func (t *TUI) handleModalKey(key KeyEvent) bool {
 		t.modal = ModalNone
 		t.modalInput = ""
 		t.modalError = ""
+		t.modalStep = 0
+		t.tempGroupName = ""
+		return false
+	}
+
+	if t.modal == ModalDeleteGroup {
+		if (key.Type == KeyRune && (key.Rune == 'y' || key.Rune == 'Y')) || key.Type == KeyEnter {
+			grp := t.cfg.GetActiveGroup()
+			if grp != nil {
+				delName := grp.Name
+				t.cfg.DeleteGroup(grp.ID)
+				_ = config.SaveClientConfig(t.cfgPath, t.cfg)
+				t.selectedIdx = 0
+				t.scrollOffset = 0
+				t.toast(fmt.Sprintf(i18n.T("✓ Категория «%s» удалена", "✓ Category «%s» deleted"), delName))
+			}
+			t.modal = ModalNone
+		} else if key.Type == KeyRune && (key.Rune == 'n' || key.Rune == 'N') {
+			t.modal = ModalNone
+		}
+		return false
+	}
+
+	if t.modal == ModalAddGroup {
+		switch key.Type {
+		case KeyBackspace:
+			if len(t.modalInput) > 0 {
+				t.modalInput = t.modalInput[:len(t.modalInput)-1]
+			}
+		case KeyEnter:
+			if t.modalStep == 0 {
+				name := strings.TrimSpace(t.modalInput)
+				if name == "" {
+					t.modalError = i18n.T("Название не может быть пустым!", "Name cannot be empty!")
+					return false
+				}
+				t.tempGroupName = name
+				t.modalStep = 1
+				t.modalInput = ""
+				t.modalError = ""
+			} else {
+				subURL := strings.TrimSpace(t.modalInput)
+				grp := t.cfg.AddGroup(t.tempGroupName, subURL)
+				_ = config.SaveClientConfig(t.cfgPath, t.cfg)
+				t.modal = ModalNone
+				t.modalInput = ""
+				t.tempGroupName = ""
+				t.modalStep = 0
+				t.selectedIdx = 0
+				t.scrollOffset = 0
+				if subURL != "" {
+					t.fetchGroupSubscription(grp.ID)
+				} else {
+					t.toast(fmt.Sprintf(i18n.T("✓ Создана группа «%s»", "✓ Created group «%s»"), grp.Name))
+				}
+			}
+		case KeyRune:
+			t.modalInput += string(key.Rune)
+		}
+		return false
+	}
+
+	if t.modal == ModalEditGroup {
+		switch key.Type {
+		case KeyBackspace:
+			if len(t.modalInput) > 0 {
+				t.modalInput = t.modalInput[:len(t.modalInput)-1]
+			}
+		case KeyEnter:
+			if t.modalStep == 0 {
+				name := strings.TrimSpace(t.modalInput)
+				if name == "" {
+					t.modalError = i18n.T("Название не может быть пустым!", "Name cannot be empty!")
+					return false
+				}
+				t.tempGroupName = name
+				t.modalStep = 1
+				curGrp := t.cfg.GetActiveGroup()
+				if curGrp != nil {
+					t.modalInput = curGrp.URL
+				} else {
+					t.modalInput = ""
+				}
+				t.modalError = ""
+			} else {
+				subURL := strings.TrimSpace(t.modalInput)
+				curGrp := t.cfg.GetActiveGroup()
+				if curGrp != nil {
+					oldURL := curGrp.URL
+					t.cfg.UpdateGroup(curGrp.ID, t.tempGroupName, subURL)
+					_ = config.SaveClientConfig(t.cfgPath, t.cfg)
+					t.modal = ModalNone
+					t.modalInput = ""
+					t.tempGroupName = ""
+					t.modalStep = 0
+					t.toast(fmt.Sprintf(i18n.T("✓ Категория «%s» обновлена", "✓ Category «%s» updated"), curGrp.Name))
+					if subURL != "" && subURL != oldURL {
+						t.fetchGroupSubscription(curGrp.ID)
+					}
+				}
+			}
+		case KeyRune:
+			t.modalInput += string(key.Rune)
+		}
 		return false
 	}
 
 	if t.modal == ModalConfirmDelete {
 		if key.Type == KeyRune && (key.Rune == 'y' || key.Rune == 'Y') || key.Type == KeyEnter {
-			if len(t.cfg.Servers) > 0 && t.selectedIdx >= 0 && t.selectedIdx < len(t.cfg.Servers) {
-				deleted := t.cfg.Servers[t.selectedIdx]
-				t.cfg.Servers = append(t.cfg.Servers[:t.selectedIdx], t.cfg.Servers[t.selectedIdx+1:]...)
-				if t.selectedIdx >= len(t.cfg.Servers) && t.selectedIdx > 0 {
+			servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
+			if len(servers) > 0 && t.selectedIdx >= 0 && t.selectedIdx < len(servers) {
+				deleted := servers[t.selectedIdx]
+				var remaining []client.ServerProfile
+				for _, s := range t.cfg.Servers {
+					if s.ID != deleted.ID {
+						remaining = append(remaining, s)
+					}
+				}
+				t.cfg.Servers = remaining
+				newInGroup := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
+				if t.selectedIdx >= len(newInGroup) && t.selectedIdx > 0 {
 					t.selectedIdx--
 				}
-				if len(t.cfg.Servers) > 0 {
-					t.cfg.ActiveID = t.cfg.Servers[t.selectedIdx].ID
-					t.client.UpdateProfile(t.cfg.Servers[t.selectedIdx])
+				if len(newInGroup) > 0 && deleted.ID == t.cfg.ActiveID {
+					t.cfg.ActiveID = newInGroup[t.selectedIdx].ID
+					t.client.UpdateProfile(newInGroup[t.selectedIdx])
 				}
 				_ = config.SaveClientConfig(t.cfgPath, t.cfg)
 				t.toast(fmt.Sprintf(i18n.T("✓ Узел удален: %s", "✓ Node deleted: %s"), deleted.Name))
@@ -392,10 +600,12 @@ func (t *TUI) submitAddNode() {
 		return
 	}
 
+	profile.GroupID = t.cfg.ActiveGroupID
 	t.cfg.Servers = append(t.cfg.Servers, *profile)
 	t.cfg.ActiveID = profile.ID
 	t.client.UpdateProfile(*profile)
-	t.selectedIdx = len(t.cfg.Servers) - 1
+	servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
+	t.selectedIdx = len(servers) - 1
 	_ = config.SaveClientConfig(t.cfgPath, t.cfg)
 
 	t.toast(fmt.Sprintf(i18n.T("✓ Добавлен узел: %s", "✓ Node added: %s"), profile.Name))
@@ -409,37 +619,48 @@ func (t *TUI) submitSubURL() {
 		return
 	}
 	t.cfg.SubscriptionURL = url
+	grp := t.cfg.GetActiveGroup()
+	if grp != nil {
+		grp.URL = url
+	}
 	_ = config.SaveClientConfig(t.cfgPath, t.cfg)
 	t.modal = ModalNone
-	t.fetchSubscription()
+	if grp != nil {
+		t.fetchGroupSubscription(grp.ID)
+	}
 }
 
-func (t *TUI) fetchSubscription() {
-	if t.cfg.SubscriptionURL == "" {
+func (t *TUI) fetchGroupSubscription(groupID string) {
+	if t.isUpdatingSub {
 		return
 	}
 	t.isUpdatingSub = true
-	subURL := t.cfg.SubscriptionURL
 	go func() {
-		nodes, err := config.FetchSubscription(subURL)
+		count, err := config.FetchAndApplyGroupSubscription(t.cfg, groupID)
 		t.mu.Lock()
 		t.isUpdatingSub = false
 		if err != nil {
 			t.toast(i18n.T("Ошибка подписки: ", "Subscription error: ") + err.Error())
-		} else if len(nodes) == 0 {
-			t.toast(i18n.T("В подписке не найдено узлов", "No nodes found in subscription"))
 		} else {
-			t.cfg.Servers = nodes
-			if len(t.cfg.Servers) > 0 {
-				t.cfg.ActiveID = t.cfg.Servers[0].ID
-				t.client.UpdateProfile(t.cfg.Servers[0])
-				t.selectedIdx = 0
-			}
 			_ = config.SaveClientConfig(t.cfgPath, t.cfg)
-			t.toast(fmt.Sprintf(i18n.T("✓ Обновлено %d узлов из подписки!", "✓ Updated %d nodes from subscription!"), len(nodes)))
+			grp := t.cfg.GetActiveGroup()
+			grpName := "Подписка"
+			if grp != nil {
+				grpName = grp.Name
+			}
+			t.selectedIdx = 0
+			t.scrollOffset = 0
+			t.toast(fmt.Sprintf(i18n.T("✓ Обновлено %d узлов в «%s»!", "✓ Updated %d nodes in «%s»!"), count, grpName))
 		}
 		t.mu.Unlock()
 	}()
+}
+
+func (t *TUI) fetchSubscription() {
+	grp := t.cfg.GetActiveGroup()
+	if grp != nil {
+		t.fetchGroupSubscription(grp.ID)
+	}
 }
 
 func (t *TUI) toggleConnection() {
@@ -456,11 +677,12 @@ func (t *TUI) toggleConnection() {
 }
 
 func (t *TUI) selectOrConnectActive() {
-	if len(t.cfg.Servers) == 0 || t.selectedIdx < 0 || t.selectedIdx >= len(t.cfg.Servers) {
+	servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
+	if len(servers) == 0 || t.selectedIdx < 0 || t.selectedIdx >= len(servers) {
 		return
 	}
 
-	sel := t.cfg.Servers[t.selectedIdx]
+	sel := servers[t.selectedIdx]
 	isAlreadyActive := (sel.ID == t.cfg.ActiveID)
 
 	t.cfg.ActiveID = sel.ID
@@ -518,10 +740,14 @@ func (t *TUI) pingAllServers() {
 }
 
 func (t *TUI) selectFastestServer() {
+	servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
+	if len(servers) == 0 {
+		servers = t.cfg.Servers
+	}
 	var bestIdx = -1
 	var minPing = 999999
 
-	for i, s := range t.cfg.Servers {
+	for i, s := range servers {
 		if s.Ping > 0 && s.Ping < minPing {
 			minPing = s.Ping
 			bestIdx = i
@@ -533,7 +759,7 @@ func (t *TUI) selectFastestServer() {
 		return
 	}
 
-	best := t.cfg.Servers[bestIdx]
+	best := servers[bestIdx]
 	t.selectedIdx = bestIdx
 	t.cfg.ActiveID = best.ID
 	t.client.UpdateProfile(best)

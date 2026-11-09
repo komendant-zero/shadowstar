@@ -96,6 +96,12 @@ func main() {
 	cfg := &client.Config{
 		SocksAddr: "127.0.0.1:10808",
 		HttpAddr:  "127.0.0.1:10809",
+		Groups: []client.SubscriptionGroup{
+			{ID: "grp-1", Name: "FastVPN Pro", URL: "https://fastvpn.org/sub/123", UpdatedAt: time.Now().Unix()},
+			{ID: "grp-2", Name: "Личные VPS", UpdatedAt: time.Now().Unix()},
+			{ID: "grp-3", Name: "Ручные", UpdatedAt: time.Now().Unix()},
+		},
+		ActiveGroupID: "grp-1",
 		Servers: []client.ServerProfile{
 			{
 				ID:            "nl-01",
@@ -107,6 +113,7 @@ func main() {
 				PaddingLen:    64,
 				Ping:          38,
 				Country:       "NL",
+				GroupID:       "grp-1",
 			},
 			{
 				ID:            "fi-01",
@@ -118,6 +125,7 @@ func main() {
 				PaddingLen:    64,
 				Ping:          29,
 				Country:       "FI",
+				GroupID:       "grp-1",
 			},
 			{
 				ID:            "de-01",
@@ -129,6 +137,7 @@ func main() {
 				PaddingLen:    64,
 				Ping:          46,
 				Country:       "DE",
+				GroupID:       "grp-1",
 			},
 			{
 				ID:            "us-01",
@@ -140,6 +149,7 @@ func main() {
 				PaddingLen:    64,
 				Ping:          112,
 				Country:       "US",
+				GroupID:       "grp-2",
 			},
 			{
 				ID:            "se-01",
@@ -151,6 +161,7 @@ func main() {
 				PaddingLen:    64,
 				Ping:          34,
 				Country:       "SE",
+				GroupID:       "grp-3",
 			},
 		},
 		ActiveID: "nl-01",

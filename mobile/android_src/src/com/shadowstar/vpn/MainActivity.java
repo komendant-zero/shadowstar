@@ -367,6 +367,44 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String fetchSubscription(String subUrl) {
+            final String[] result = new String[]{""};
+            if (subUrl == null || subUrl.trim().isEmpty()) {
+                return "";
+            }
+            final CountDownLatch latch = new CountDownLatch(1);
+            new Thread(() -> {
+                try {
+                    java.net.URL url = new java.net.URL(subUrl.trim());
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(8000);
+                    conn.setReadTimeout(12000);
+                    conn.setRequestProperty("User-Agent", "ShadowStar/1.3.0");
+                    conn.setRequestMethod("GET");
+                    int code = conn.getResponseCode();
+                    if (code >= 200 && code < 300) {
+                        try (InputStream in = conn.getInputStream();
+                             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                            byte[] buf = new byte[8192];
+                            int n;
+                            while ((n = in.read(buf)) > 0) {
+                                out.write(buf, 0, n);
+                            }
+                            result[0] = out.toString("UTF-8");
+                        }
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    latch.countDown();
+                }
+            }).start();
+            try {
+                latch.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
+            return result[0];
+        }
+
+        @JavascriptInterface
         public void showToast(String msg) {
             activity.runOnUiThread(() -> {
                 try {

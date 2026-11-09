@@ -7,6 +7,7 @@
   <meta name="theme-color" content="#090D16">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="icon" type="image/x-icon" href="./favicon.ico">
   <link rel="manifest" href="./manifest.json">
   <link rel="stylesheet" href="./style.css">
 </head>
@@ -65,6 +66,17 @@
         <!-- Rendered dynamically via JavaScript -->
       </section>
 
+      <!-- Quick Node Switcher (1-Click Switch on Dashboard) -->
+      <section class="quick-nodes-section" id="quick-nodes-container">
+        <div class="quick-nodes-header">
+          <span style="font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase;" data-i18n="quickSwitchTitle">Быстрое переключение</span>
+          <span style="font-size: 11px; color: var(--accent-cyan); font-weight: 600; cursor: pointer;" onclick="switchTab('servers')" data-i18n="viewAllNodes">Все узлы →</span>
+        </div>
+        <div class="quick-nodes-scroll" id="quick-nodes-list">
+          <!-- Rendered dynamically -->
+        </div>
+      </section>
+
       <!-- Security Info Card -->
       <section class="glass-card" style="padding: 14px 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -84,13 +96,17 @@
     <main id="view-servers" style="display: none;">
       <!-- Toolbar -->
       <div class="servers-toolbar">
+        <button class="tool-btn" onclick="updateSubscriptionNow()" title="Обновить подписку">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <span data-i18n="toolUpdateSub">Обновить</span>
+        </button>
         <button class="tool-btn" onclick="openAddModal()">
           <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
           <span data-i18n="toolAdd">Новый узел</span>
         </button>
         <button class="tool-btn" onclick="openSubModal()">
           <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span data-i18n="toolSub">URL подписки</span>
+          <span data-i18n="toolSub">Подписка</span>
         </button>
         <button class="tool-btn" onclick="selectAutoBest()">
           <svg class="icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>

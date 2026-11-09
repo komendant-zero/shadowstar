@@ -43,6 +43,8 @@ var (
 	pPostQuitMessage            = user32.NewProc("PostQuitMessage")
 	pDestroyWindow              = user32.NewProc("DestroyWindow")
 	pLoadCursorW                = user32.NewProc("LoadCursorW")
+	pLoadImageW                 = user32.NewProc("LoadImageW")
+	pSendMessageW               = user32.NewProc("SendMessageW")
 	pSetCursor                  = user32.NewProc("SetCursor")
 	pBeginPaint                 = user32.NewProc("BeginPaint")
 	pEndPaint                   = user32.NewProc("EndPaint")
@@ -875,18 +877,50 @@ func (app *AppState) renderDashboard(hdc, graphics uintptr, w, h int32) {
 		pingTxt = i18n.T("Тест", "Ping")
 	}
 	pingMs := app.pingMs
+	servers := make([]client.ServerProfile, len(app.cfg.Servers))
+	copy(servers, app.cfg.Servers)
+	activeID := app.cfg.ActiveID
+	subURL := app.cfg.SubscriptionURL
+	isUpdatingSub := app.updatingSub
+	isPingingAll := app.pingingAll
 	app.mu.Unlock()
 
-	colW := (w - 50) / 2 // ~315 px
-
-	// LEFT: Connection Power Button Card
+	// -------------------------------------------------------------
+	// LEFT COLUMN (x: 20, w: 320): Connection Control & Telemetry
+	// -------------------------------------------------------------
+	colLeftW := int32(320)
 	cardLeftX := int32(20)
+
+	// 1. Connection Power Button Card (y: 64, h: 216)
 	cardLeftY := int32(64)
 	cardH1 := int32(216)
-	drawSmoothCard(graphics, cardLeftX, cardLeftY, colW, cardH1, 14, 0xFF101726, 0xFF1D293E, 1.0)
+	drawSmoothCard(graphics, cardLeftX, cardLeftY, colLeftW, cardH1, 14, 0xFF101726, 0xFF1D293E, 1.0)
 
-	btnCX := cardLeftX + colW/2
-	btnCY := cardLeftY + 80
+	// Ping Badge (top-right of hero card)
+	pingBadgeW := int32(76)
+	pingBadgeX := cardLeftX + colLeftW - 14 - pingBadgeW
+	pingBadgeY := cardLeftY + 12
+	pBg := uint32(0xFF162032)
+	pBorder := uint32(0xFF283954)
+	pColorARGB := uint32(0xFF10B981)
+	pColorBGR := uint32(0x0081B910)
+	if pingMs > 200 {
+		pColorARGB = 0xFFF59E0B
+		pColorBGR = 0x000B9EF5
+	} else if pingMs == -1 {
+		pColorARGB = 0xFFEF4444
+		pColorBGR = 0x004444EF
+	}
+	if app.hoverElement == HitActivePingBadge {
+		pBg = 0xFF223048
+		pBorder = 0xFF00E5FF
+	}
+	drawSmoothCard(graphics, pingBadgeX, pingBadgeY, pingBadgeW, 24, 6, pBg, pBorder, 1.0)
+	drawVectorLightningIcon(graphics, pingBadgeX+8, pingBadgeY+12, pColorARGB)
+	drawText(hdc, pingTxt, pingBadgeX+12, pingBadgeY, pingBadgeW-12, 24, app.hFontSmall, pColorBGR, 0x0025)
+
+	btnCX := cardLeftX + colLeftW/2
+	btnCY := cardLeftY + 76
 
 	if isConnected {
 		// Connected Aura (Emerald)
@@ -895,14 +929,14 @@ func (app *AppState) renderDashboard(hdc, graphics uintptr, w, h int32) {
 		drawVectorPowerIcon(graphics, btnCX, btnCY, 20, 0xFFFFFFFF, 3.4)
 
 		drawSmoothCircle(graphics, btnCX-56, cardLeftY+156, 4, 0xFF10B981, 0xFF10B981, 0)
-		drawText(hdc, i18n.T("ПОДКЛЮЧЕНО", "CONNECTED"), cardLeftX, cardLeftY+146, colW, 22, app.hFontHeader, 0x0081B910, 0x0025)
+		drawText(hdc, i18n.T("ПОДКЛЮЧЕНО", "CONNECTED"), cardLeftX, cardLeftY+146, colLeftW, 22, app.hFontHeader, 0x0081B910, 0x0025)
 
 		sec := time.Now().Unix() - connTime
 		if sec < 0 {
 			sec = 0
 		}
 		timeStr := fmt.Sprintf(i18n.T("Анти-DPI туннель активен • %02d:%02d:%02d", "Anti-DPI tunnel active • %02d:%02d:%02d"), sec/3600, (sec%3600)/60, sec%60)
-		drawText(hdc, timeStr, cardLeftX, cardLeftY+174, colW, 18, app.hFontSmall, 0x0094A3B8, 0x0025)
+		drawText(hdc, timeStr, cardLeftX, cardLeftY+174, colLeftW, 18, app.hFontSmall, 0x0094A3B8, 0x0025)
 
 	} else if isConnecting {
 		// Connecting Aura (Amber)
@@ -911,8 +945,8 @@ func (app *AppState) renderDashboard(hdc, graphics uintptr, w, h int32) {
 		drawVectorPowerIcon(graphics, btnCX, btnCY, 20, 0xFF0F141C, 3.4)
 
 		drawSmoothCircle(graphics, btnCX-68, cardLeftY+156, 4, 0xFFF59E0B, 0xFFF59E0B, 0)
-		drawText(hdc, i18n.T("ПОДКЛЮЧЕНИЕ...", "CONNECTING..."), cardLeftX, cardLeftY+146, colW, 22, app.hFontHeader, 0x000B9EF5, 0x0025)
-		drawText(hdc, i18n.T("Согласование TLS 1.3 Reality...", "Handshaking TLS 1.3 Reality..."), cardLeftX, cardLeftY+174, colW, 18, app.hFontSmall, 0x00CBD5E1, 0x0025)
+		drawText(hdc, i18n.T("ПОДКЛЮЧЕНИЕ...", "CONNECTING..."), cardLeftX, cardLeftY+146, colLeftW, 22, app.hFontHeader, 0x000B9EF5, 0x0025)
+		drawText(hdc, i18n.T("Согласование TLS 1.3 Reality...", "Handshaking TLS 1.3 Reality..."), cardLeftX, cardLeftY+174, colLeftW, 18, app.hFontSmall, 0x00CBD5E1, 0x0025)
 
 	} else {
 		// Disconnected (Stealth Titanium)
@@ -931,144 +965,337 @@ func (app *AppState) renderDashboard(hdc, graphics uintptr, w, h int32) {
 		drawVectorPowerIcon(graphics, btnCX, btnCY, 20, iconColor, 3.2)
 
 		drawSmoothCircle(graphics, btnCX-50, cardLeftY+156, 4, 0xFF64748B, 0xFF64748B, 0)
-		drawText(hdc, i18n.T("ОТКЛЮЧЕНО", "DISCONNECTED"), cardLeftX, cardLeftY+146, colW, 22, app.hFontHeader, 0x008B7464, 0x0025)
-		drawText(hdc, i18n.T("Нажмите для включения защиты", "Click power button to connect"), cardLeftX, cardLeftY+174, colW, 18, app.hFontSmall, 0x0064748B, 0x0025)
+		drawText(hdc, i18n.T("ОТКЛЮЧЕНО", "DISCONNECTED"), cardLeftX, cardLeftY+146, colLeftW, 22, app.hFontHeader, 0x008B7464, 0x0025)
+		drawText(hdc, i18n.T("Нажмите для включения защиты", "Click power button to connect"), cardLeftX, cardLeftY+170, colLeftW, 18, app.hFontSmall, 0x0064748B, 0x0025)
 	}
 
-	// RIGHT: Active Server Overview Card
-	cardRightX := cardLeftX + colW + 10
-	drawSmoothCard(graphics, cardRightX, cardLeftY, colW, cardH1, 14, 0xFF101726, 0xFF1D293E, 1.0)
-
-	// Active Server Card Title & Ping Badge
-	drawText(hdc, i18n.T("ТЕКУЩИЙ УЗЕЛ", "CURRENT NODE"), cardRightX+16, cardLeftY+16, 140, 18, app.hFontTiny, 0x0064748B, 0x0020)
-
-	// Ping Badge (Clickable with comfortable padding)
-	badgeW := int32(80)
-	badgeH := int32(26)
-	badgeX := cardRightX + colW - 16 - badgeW
-	badgeY := cardLeftY + 12
-	pingBg := uint32(0xFF162032)
-	pingBorder := uint32(0xFF283954)
-	pingColorARGB := uint32(0xFF10B981)
-	pingColorBGR := uint32(0x0081B910)
-	if pingMs > 200 {
-		pingColorARGB = 0xFFF59E0B
-		pingColorBGR = 0x000B9EF5
-	} else if pingMs == -1 {
-		pingColorARGB = 0xFFEF4444
-		pingColorBGR = 0x004444EF
+	// Active Node Name
+	activeNodeLabel := activeProfile.Name
+	if activeNodeLabel == "" {
+		activeNodeLabel = i18n.T("Сервер не выбран", "No server selected")
 	}
-	if app.hoverElement == HitActivePingBadge {
-		pingBg = 0xFF223048
-		pingBorder = 0xFF00E5FF
-	}
-	drawSmoothCard(graphics, badgeX, badgeY, badgeW, badgeH, 6, pingBg, pingBorder, 1.0)
-	drawVectorLightningIcon(graphics, badgeX+12, badgeY+13, pingColorARGB)
-	drawText(hdc, pingTxt, badgeX+18, badgeY, badgeW-20, badgeH, app.hFontButton, pingColorBGR, 0x0025)
+	drawText(hdc, "✦ "+activeNodeLabel, cardLeftX+12, cardLeftY+192, colLeftW-24, 18, app.hFontButton, 0x0000E5FF, 0x0025)
 
-	// Country Flag Pill + Server Name
-	countryCode := "--"
-	srvName := i18n.T("Нет доступных узлов", "No nodes configured")
-	srvAddr := i18n.T("Узлы не добавлены", "Server list is empty")
-	sni := "--"
-	if len(app.cfg.Servers) > 0 && activeProfile.ServerAddr != "" {
-		cCode, _ := config.DetectCountry(activeProfile.Name, activeProfile.ServerAddr)
-		if activeProfile.Country != "" {
-			cCode = activeProfile.Country
-		}
-		countryCode = cCode
-		if activeProfile.Name != "" {
-			srvName = activeProfile.Name
-		} else {
-			srvName = activeProfile.ServerAddr
-		}
-		srvAddr = activeProfile.ServerAddr
-		sni = activeProfile.SNI
-	}
-
-	pillW := int32(42)
-	drawSmoothCard(graphics, cardRightX+16, cardLeftY+44, pillW, 24, 6, 0x2600E5FF, 0x6600E5FF, 1.0)
-	drawText(hdc, countryCode, cardRightX+16, cardLeftY+44, pillW, 24, app.hFontButton, 0x0000E5FF, 0x0025)
-
-	drawText(hdc, srvName, cardRightX+16+pillW+10, cardLeftY+45, colW-80-pillW, 24, app.hFontHeader, 0x00FCFAF8, 0x0020)
-
-	// Server Spec details
-	drawText(hdc, i18n.T("Адрес сервера:", "Server address:"), cardRightX+16, cardLeftY+76, 105, 16, app.hFontSmall, 0x0064748B, 0x0020)
-	drawText(hdc, srvAddr, cardRightX+122, cardLeftY+76, colW-137, 16, app.hFontCode, 0x00CBD5E1, 0x0020)
-
-	drawText(hdc, i18n.T("Маскировка:", "Masking / SNI:"), cardRightX+16, cardLeftY+96, 105, 16, app.hFontSmall, 0x0064748B, 0x0020)
-	drawText(hdc, sni, cardRightX+122, cardLeftY+96, colW-137, 16, app.hFontSmall, 0x0000E5FF, 0x0020)
-
-	drawText(hdc, i18n.T("Защита:", "Protection:"), cardRightX+16, cardLeftY+116, 105, 16, app.hFontSmall, 0x0064748B, 0x0020)
-	drawText(hdc, "TLS 1.3 Reality + Chunker", cardRightX+122, cardLeftY+116, colW-137, 16, app.hFontSmall, 0x0010B981, 0x0020)
-
-	// "Выбрать другой узел" Button
-	swBtnY := cardLeftY + 158
-	swBtnW := colW - 32
-	swBtnH := int32(38)
-	swBtnBg := uint32(0xFF162032)
-	swBtnBorder := uint32(0xFF283954)
-	if app.hoverElement == HitBtnSwitchServer {
-		swBtnBg = 0xFF223048
-		swBtnBorder = 0xFF00E5FF
-	}
-	drawSmoothCard(graphics, cardRightX+16, swBtnY, swBtnW, swBtnH, 8, swBtnBg, swBtnBorder, 1.0)
-	drawText(hdc, i18n.T("🌐 Выбрать другой узел →", "🌐 Switch active node →"), cardRightX+16, swBtnY, swBtnW, swBtnH, app.hFontButton, 0x00FCFAF8, 0x0025)
-
-	// --- ROW 2: Telemetry Speed Cards (y: 290) ---
-	row2Y := int32(290)
-	row2H := int32(82)
-
-	// Left: Download Card
-	drawSmoothCard(graphics, cardLeftX, row2Y, colW, row2H, 12, 0xFF101726, 0xFF1D293E, 1.0)
-	drawText(hdc, i18n.T("СКОРОСТЬ ЗАГРУЗКИ", "DOWNLOAD SPEED"), cardLeftX+16, row2Y+12, 160, 16, app.hFontTiny, 0x0064748B, 0x0020)
+	// 2. Telemetry Speed Card (y: 288, h: 84)
+	row2Y := int32(288)
+	row2H := int32(84)
+	drawSmoothCard(graphics, cardLeftX, row2Y, colLeftW, row2H, 12, 0xFF101726, 0xFF1D293E, 1.0)
+	halfW := (colLeftW - 24) / 2
+	drawText(hdc, i18n.T("ЗАГРУЗКА", "DOWNLOAD"), cardLeftX+12, row2Y+10, halfW, 16, app.hFontTiny, 0x0064748B, 0x0020)
 	speedDownStr := formatBytesSpeed(app.speedDown)
-	drawText(hdc, "↓ "+speedDownStr, cardLeftX+16, row2Y+28, colW-32, 30, app.hFontBigSpeed, 0x0000E5FF, 0x0020)
-	totDownStr := fmt.Sprintf(i18n.T("Всего: %s  •  Потоков: %d", "Total: %s  •  Streams: %d"), formatTotalBytes(app.bytesDown), app.activeConns)
-	drawText(hdc, totDownStr, cardLeftX+16, row2Y+58, colW-32, 16, app.hFontTiny, 0x0094A3B8, 0x0020)
+	drawText(hdc, "↓ "+speedDownStr, cardLeftX+12, row2Y+26, halfW, 26, app.hFontButton, 0x0000E5FF, 0x0020)
+	drawText(hdc, formatTotalBytes(app.bytesDown), cardLeftX+12, row2Y+54, halfW, 16, app.hFontTiny, 0x0094A3B8, 0x0020)
 
-	// Right: Upload Card
-	drawSmoothCard(graphics, cardRightX, row2Y, colW, row2H, 12, 0xFF101726, 0xFF1D293E, 1.0)
-	drawText(hdc, i18n.T("СКОРОСТЬ ОТДАЧИ", "UPLOAD SPEED"), cardRightX+16, row2Y+12, 160, 16, app.hFontTiny, 0x0064748B, 0x0020)
+	drawText(hdc, i18n.T("ОТДАЧА", "UPLOAD"), cardLeftX+12+halfW, row2Y+10, halfW, 16, app.hFontTiny, 0x0064748B, 0x0020)
 	speedUpStr := formatBytesSpeed(app.speedUp)
-	drawText(hdc, "↑ "+speedUpStr, cardRightX+16, row2Y+28, colW-32, 30, app.hFontBigSpeed, 0x0081B910, 0x0020)
-	totUpStr := fmt.Sprintf(i18n.T("Всего: %s  •  RFC 7685 Anti-DPI", "Total: %s  •  RFC 7685 Anti-DPI"), formatTotalBytes(app.bytesUp))
-	drawText(hdc, totUpStr, cardRightX+16, row2Y+58, colW-32, 16, app.hFontTiny, 0x0094A3B8, 0x0020)
+	drawText(hdc, "↑ "+speedUpStr, cardLeftX+12+halfW, row2Y+26, halfW, 26, app.hFontButton, 0x0081B910, 0x0020)
+	drawText(hdc, formatTotalBytes(app.bytesUp), cardLeftX+12+halfW, row2Y+54, halfW, 16, app.hFontTiny, 0x0094A3B8, 0x0020)
 
-	// --- ROW 3: System Proxy & Local Ports (y: 382) ---
-	row3Y := int32(382)
+	// 3. Windows System Proxy Card (y: 380, h: 76)
+	row3Y := int32(380)
 	row3H := int32(76)
-
-	// Left: System Proxy Card
 	proxyBg := uint32(0xFF101726)
 	proxyBorder := uint32(0xFF1D293E)
 	if app.hoverElement == HitSysProxyCard {
 		proxyBg = 0xFF162032
 		proxyBorder = 0xFF00E5FF
 	}
-	drawSmoothCard(graphics, cardLeftX, row3Y, colW, row3H, 12, proxyBg, proxyBorder, 1.0)
-	drawVectorShieldIcon(graphics, cardLeftX+28, row3Y+38, 18, 20, 0xFF00E5FF, 0x2600E5FF, 1.4)
-	drawText(hdc, i18n.T("Системный прокси Windows", "Windows System Proxy"), cardLeftX+48, row3Y+16, colW-110, 20, app.hFontTitle, 0x00FCFAF8, 0x0020)
-	if isAWGActive() {
-		drawText(hdc, i18n.T("⚠️ AmneziaWG активен (без конфликта)", "⚠️ AmneziaWG active (no conflict)"), cardLeftX+48, row3Y+40, colW-110, 16, app.hFontSmall, 0x000B9EF5, 0x0020)
-	} else {
-		drawText(hdc, i18n.T("Маршрутизация браузеров и программ", "Route browsers and system traffic"), cardLeftX+48, row3Y+40, colW-110, 16, app.hFontSmall, 0x0094A3B8, 0x0020)
-	}
-	drawSmoothToggle(graphics, cardLeftX+colW-58, row3Y+26, 44, 24, app.sysProxyEnabled)
+	drawSmoothCard(graphics, cardLeftX, row3Y, colLeftW, row3H, 12, proxyBg, proxyBorder, 1.0)
+	drawVectorShieldIcon(graphics, cardLeftX+24, row3Y+38, 16, 18, 0xFF00E5FF, 0x2600E5FF, 1.4)
+	drawText(hdc, i18n.T("Системный прокси Windows", "Windows System Proxy"), cardLeftX+44, row3Y+16, colLeftW-104, 20, app.hFontTitle, 0x00FCFAF8, 0x0020)
+	drawText(hdc, i18n.T("Маршрутизация всех программ", "Route browsers & system traffic"), cardLeftX+44, row3Y+40, colLeftW-104, 16, app.hFontSmall, 0x0094A3B8, 0x0020)
+	drawSmoothToggle(graphics, cardLeftX+colLeftW-54, row3Y+26, 44, 24, app.sysProxyEnabled)
 
-	// Right: Local Ports Card
+	// 4. Local Ports Card (y: 464, h: 66)
+	row4Y := int32(464)
+	row4H := int32(66)
 	portsBg := uint32(0xFF0C121E)
 	portsBorder := uint32(0xFF1A263A)
 	if app.hoverElement == HitPortsCard {
 		portsBorder = 0xFF00E5FF
 	}
-	drawSmoothCard(graphics, cardRightX, row3Y, colW, row3H, 12, portsBg, portsBorder, 1.0)
-	drawText(hdc, "SOCKS5: 127.0.0.1:10808 (TCP / UDP)", cardRightX+16, row3Y+14, colW-32, 18, app.hFontCodeBold, 0x00CBD5E1, 0x0020)
-	drawText(hdc, "HTTP:   127.0.0.1:10809 (IDE / System)", cardRightX+16, row3Y+32, colW-32, 18, app.hFontCodeBold, 0x00CBD5E1, 0x0020)
-	drawText(hdc, i18n.T("Нажмите, чтобы скопировать адрес SOCKS5", "Click to copy local SOCKS5 address"), cardRightX+16, row3Y+52, colW-32, 14, app.hFontTiny, 0x0064748B, 0x0020)
+	drawSmoothCard(graphics, cardLeftX, row4Y, colLeftW, row4H, 12, portsBg, portsBorder, 1.0)
+	drawText(hdc, "SOCKS5: 127.0.0.1:10808 (TCP/UDP)", cardLeftX+14, row4Y+12, colLeftW-28, 18, app.hFontCodeBold, 0x00CBD5E1, 0x0020)
+	drawText(hdc, "HTTP:   127.0.0.1:10809 (System/IDE)", cardLeftX+14, row4Y+30, colLeftW-28, 18, app.hFontCodeBold, 0x00CBD5E1, 0x0020)
+	drawText(hdc, i18n.T("Нажмите для копирования SOCKS5", "Click to copy SOCKS5 address"), cardLeftX+14, row4Y+48, colLeftW-28, 14, app.hFontTiny, 0x0064748B, 0x0020)
 
-	// --- ROW 4: Security Badges Footer (y: 472) ---
-	drawText(hdc, "✓ TCP Chunker Active   •   ✓ Decoy Shield 200 OK   •   ✓ Frame Morphing   •   ✓ Zero-Logs", 20, 474, w-40, 20, app.hFontSmall, 0x0064748B, 0x0025)
+	// -------------------------------------------------------------
+	// RIGHT COLUMN (x: 355, w: 465): MULTI-SERVERS & SUBSCRIPTION
+	// -------------------------------------------------------------
+	cardRightX := int32(355)
+	colRightW := w - cardRightX - 20
+
+	// 1. Subscription & Actions Toolbar (y: 64, h: 72)
+	barY := int32(64)
+	drawSmoothCard(graphics, cardRightX, barY, colRightW, 72, 12, 0xFF101726, 0xFF1D293E, 1.0)
+
+	subDisplay := subURL
+	if subDisplay == "" {
+		subDisplay = i18n.T("Подписка не задана (нажмите «⚙️ Подписка»)", "No subscription (click «⚙️ Sub»)")
+	}
+	drawText(hdc, i18n.T("Подписка:", "Subscription:"), cardRightX+12, barY+8, 80, 16, app.hFontTiny, 0x0064748B, 0x0020)
+	drawText(hdc, subDisplay, cardRightX+95, barY+8, colRightW-105, 16, app.hFontCode, 0x0000E5FF, 0x0020)
+
+	// Toolbar Buttons: [ 🔄 Обновить ] [ 📋 Буфер ] [ ⚡ Пинг ] [ ➕ Нода ] [ ⚙️ Подписка ]
+	btnY := barY + 30
+	btnH := int32(30)
+	bGap := int32(6)
+
+	// B1: Update Sub
+	b1W := int32(96)
+	b1X := cardRightX + 10
+	b1Bg := uint32(0xFF162032)
+	b1Border := uint32(0xFF283954)
+	if app.hoverElement == HitBtnUpdateSub {
+		b1Bg = 0xFF223048
+		b1Border = 0xFF00E5FF
+	}
+	drawSmoothCard(graphics, b1X, btnY, b1W, btnH, 6, b1Bg, b1Border, 1.0)
+	b1Txt := i18n.T("🔄 Обновить", "🔄 Update")
+	if isUpdatingSub {
+		b1Txt = i18n.T("⏳ Загрузка...", "⏳ Loading...")
+	}
+	drawText(hdc, b1Txt, b1X, btnY, b1W, btnH, app.hFontButton, 0x00FCFAF8, 0x0025)
+
+	// B2: Import from Clipboard
+	b2W := int32(82)
+	b2X := b1X + b1W + bGap
+	b2Bg := uint32(0xFF162032)
+	b2Border := uint32(0xFF283954)
+	if app.hoverElement == HitBtnImportClip {
+		b2Bg = 0xFF223048
+		b2Border = 0xFF00E5FF
+	}
+	drawSmoothCard(graphics, b2X, btnY, b2W, btnH, 6, b2Bg, b2Border, 1.0)
+	drawText(hdc, i18n.T("📋 Буфер", "📋 Paste"), b2X, btnY, b2W, btnH, app.hFontButton, 0x00FCFAF8, 0x0025)
+
+	// B3: Ping All
+	b3W := int32(78)
+	b3X := b2X + b2W + bGap
+	b3Bg := uint32(0xFF162032)
+	b3Border := uint32(0xFF283954)
+	if app.hoverElement == HitBtnPingAll {
+		b3Bg = 0xFF223048
+		b3Border = 0xFF00E5FF
+	}
+	drawSmoothCard(graphics, b3X, btnY, b3W, btnH, 6, b3Bg, b3Border, 1.0)
+	b3Txt := i18n.T("⚡ Пинг", "⚡ Ping")
+	if isPingingAll {
+		b3Txt = i18n.T("⏳ Тест...", "⏳ Test...")
+	}
+	drawText(hdc, b3Txt, b3X, btnY, b3W, btnH, app.hFontButton, 0x00FCFAF8, 0x0025)
+
+	// B4: Add Node
+	b4W := int32(80)
+	b4X := b3X + b3W + bGap
+	b4Bg := uint32(0xFF162032)
+	b4Border := uint32(0xFF283954)
+	if app.hoverElement == HitBtnAddServer {
+		b4Bg = 0xFF223048
+		b4Border = 0xFF00E5FF
+	}
+	drawSmoothCard(graphics, b4X, btnY, b4W, btnH, 6, b4Bg, b4Border, 1.0)
+	drawText(hdc, i18n.T("➕ Нода", "➕ Node"), b4X, btnY, b4W, btnH, app.hFontButton, 0x00FCFAF8, 0x0025)
+
+	// B5: Setup Subscription URL
+	b5X := b4X + b4W + bGap
+	b5W := colRightW - 10 - (b5X - cardRightX)
+	b5Bg := uint32(0xFF162032)
+	b5Border := uint32(0xFF283954)
+	if app.hoverElement == HitBtnSetSubURL {
+		b5Bg = 0xFF223048
+		b5Border = 0xFF00E5FF
+	}
+	drawSmoothCard(graphics, b5X, btnY, b5W, btnH, 6, b5Bg, b5Border, 1.0)
+	drawText(hdc, i18n.T("⚙️ Подписка", "⚙️ Sub URL"), b5X, btnY, b5W, btnH, app.hFontButton, 0x00FCFAF8, 0x0025)
+
+	// 2. Servers Header Row (y: 144, h: 22)
+	headY := int32(144)
+	srvLabel := fmt.Sprintf("%s (%d)", i18n.T("ДОСТУПНЫЕ УЗЛЫ", "AVAILABLE NODES"), len(servers))
+	drawText(hdc, srvLabel, cardRightX+4, headY, 200, 20, app.hFontTiny, 0x0064748B, 0x0020)
+
+	// Auto-best Button (Right side of header)
+	autoW := int32(130)
+	autoX := cardRightX + colRightW - autoW
+	autoBg := uint32(0xFF131A28)
+	autoBorder := uint32(0xFF222E42)
+	if app.hoverElement == HitBtnAutoBest {
+		autoBg = 0xFF1C283C
+		autoBorder = 0xFF00E5FF
+	}
+	drawSmoothCard(graphics, autoX, headY-2, autoW, 24, 6, autoBg, autoBorder, 1.0)
+	drawText(hdc, i18n.T("⚡ Авто-выбор", "⚡ Auto-Best"), autoX, headY-2, autoW, 24, app.hFontSmall, 0x0000E5FF, 0x0025)
+
+	// 3. Live Servers List Cards (y: 170, cardH: 64, gap: 8)
+	listY := int32(170)
+	cardH := int32(64)
+	gap := int32(8)
+	itemsPerPage := 4
+
+	startIdx := app.serverPage * itemsPerPage
+	if startIdx >= len(servers) {
+		startIdx = 0
+		app.serverPage = 0
+	}
+	endIdx := startIdx + itemsPerPage
+	if endIdx > len(servers) {
+		endIdx = len(servers)
+	}
+
+	if len(servers) == 0 {
+		drawSmoothCard(graphics, cardRightX, listY, colRightW, 140, 10, 0xFF101726, 0xFF1D293E, 1.0)
+		drawText(hdc, i18n.T("Список узлов пуст", "No nodes available"), cardRightX, listY+40, colRightW, 24, app.hFontTitle, 0x0094A3B8, 0x0025)
+		drawText(hdc, i18n.T("Нажмите «⚙️ Подписка» или добавьте узел вручную", "Click «⚙️ Sub URL» or add a node manually"), cardRightX, listY+68, colRightW, 18, app.hFontSmall, 0x0064748B, 0x0025)
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		s := servers[i]
+		rowY := listY + int32(i-startIdx)*(cardH+gap)
+		isActive := (s.ID == activeID)
+
+		cardBg := uint32(0xFF101726)
+		cardBorder := uint32(0xFF1D293E)
+		if isActive {
+			cardBg = 0xFF142436
+			cardBorder = 0xFF00E5FF
+		} else if app.hoverElement == HitServerBaseSelect+i {
+			cardBg = 0xFF162032
+			cardBorder = 0xFF3B82F6
+		}
+		drawSmoothCard(graphics, cardRightX, rowY, colRightW, cardH, 10, cardBg, cardBorder, 1.2)
+
+		// Country Pill
+		cCode, _ := config.DetectCountry(s.Name, s.ServerAddr)
+		if s.Country != "" {
+			cCode = s.Country
+		}
+		pillW := int32(40)
+		drawSmoothCard(graphics, cardRightX+12, rowY+18, pillW, 26, 6, 0x2600E5FF, 0x6600E5FF, 1.0)
+		drawText(hdc, cCode, cardRightX+12, rowY+18, pillW, 26, app.hFontButton, 0x0000E5FF, 0x0025)
+
+		// Right Action Buttons: [ ✕ ] [ ✎ ] [ ⚡ Ping ] [ ✓ Активен / Выбрать ]
+		actBW := int32(84)
+		actBH := int32(28)
+		actBX := cardRightX + colRightW - 10 - actBW
+		actBY := rowY + 18
+
+		pingBW := int32(66)
+		pingBH := int32(28)
+		pingBX := actBX - 6 - pingBW
+		pingBY := rowY + 18
+
+		editBW := int32(28)
+		editBH := int32(28)
+		editBX := pingBX - 6 - editBW
+		editBY := rowY + 18
+
+		delBW := int32(28)
+		delBH := int32(28)
+		delBX := editBX - 6 - delBW
+		delBY := rowY + 18
+
+		// Name & Address
+		nameX := cardRightX + 12 + pillW + 10
+		maxTextW := delBX - 6 - nameX
+		drawText(hdc, s.Name, nameX, rowY+12, maxTextW, 20, app.hFontTitle, 0x00FCFAF8, 0x0020)
+		subAddr := fmt.Sprintf("%s • SNI: %s", s.ServerAddr, s.SNI)
+		drawText(hdc, subAddr, nameX, rowY+34, maxTextW, 16, app.hFontSmall, 0x0094A3B8, 0x0020)
+
+		// Select / Active Button
+		if isActive {
+			drawSmoothCard(graphics, actBX, actBY, actBW, actBH, 6, 0xFF10B981, 0xFF059669, 1.0)
+			drawText(hdc, i18n.T("✓ Активен", "✓ Active"), actBX, actBY, actBW, actBH, app.hFontButton, 0x00FCFAF8, 0x0025)
+		} else {
+			selBg := uint32(0xFF1E2A3E)
+			selBorder := uint32(0xFF334664)
+			if app.hoverElement == HitServerBaseSelect+i {
+				selBg = 0xFF2A3C58
+				selBorder = 0xFF00E5FF
+			}
+			drawSmoothCard(graphics, actBX, actBY, actBW, actBH, 6, selBg, selBorder, 1.0)
+			drawText(hdc, i18n.T("Выбрать", "Select"), actBX, actBY, actBW, actBH, app.hFontButton, 0x00CBD5E1, 0x0025)
+		}
+
+		// Ping Badge Button
+		pBg := uint32(0xFF162032)
+		pBorder := uint32(0xFF283954)
+		pColorARGB := uint32(0xFF10B981)
+		pColorBGR := uint32(0x0081B910)
+		pTxt := i18n.T("Тест", "Ping")
+		if s.Ping > 0 {
+			pTxt = fmt.Sprintf("%d ms", s.Ping)
+			if s.Ping > 200 {
+				pColorARGB = 0xFFF59E0B
+				pColorBGR = 0x000B9EF5
+			}
+		} else if s.Ping == -1 {
+			pTxt = "Timeout"
+			pColorARGB = 0xFFEF4444
+			pColorBGR = 0x004444EF
+		}
+		if app.hoverElement == HitServerBasePing+i {
+			pBg = 0xFF223048
+			pBorder = 0xFF00E5FF
+		}
+		drawSmoothCard(graphics, pingBX, pingBY, pingBW, pingBH, 6, pBg, pBorder, 1.0)
+		drawVectorLightningIcon(graphics, pingBX+9, pingBY+14, pColorARGB)
+		drawText(hdc, pTxt, pingBX+14, pingBY, pingBW-14, pingBH, app.hFontSmall, pColorBGR, 0x0025)
+
+		// Edit Button
+		edBg := uint32(0xFF162032)
+		edBorder := uint32(0xFF283954)
+		edColor := uint32(0x0094A3B8)
+		if app.hoverElement == HitServerBaseEdit+i {
+			edBg = 0xFF223048
+			edBorder = 0xFF00E5FF
+			edColor = 0x0000E5FF
+		}
+		drawSmoothCard(graphics, editBX, editBY, editBW, editBH, 6, edBg, edBorder, 1.0)
+		drawText(hdc, "✎", editBX, editBY, editBW, editBH, app.hFontButton, edColor, 0x0025)
+
+		// Delete Button
+		delBg := uint32(0xFF162032)
+		delBorder := uint32(0xFF283954)
+		delColor := uint32(0x0064748B)
+		if app.hoverElement == HitServerBaseDelete+i {
+			delBg = 0xFF2A1520
+			delBorder = 0xFFEF4444
+			delColor = 0x004444EF
+		}
+		drawSmoothCard(graphics, delBX, delBY, delBW, delBH, 6, delBg, delBorder, 1.0)
+		drawText(hdc, "✕", delBX, delBY, delBW, delBH, app.hFontButton, delColor, 0x0025)
+	}
+
+	// 4. Pagination Controls (y: 462, h: 32)
+	if len(servers) > itemsPerPage {
+		footY := int32(462)
+		maxPages := (len(servers) + itemsPerPage - 1) / itemsPerPage
+
+		prevBg := uint32(0xFF162032)
+		prevBorder := uint32(0xFF283954)
+		if app.hoverElement == HitServerPagePrev {
+			prevBg = 0xFF223048
+			prevBorder = 0xFF00E5FF
+		}
+		drawSmoothCard(graphics, cardRightX, footY, 32, 28, 6, prevBg, prevBorder, 1.0)
+		drawText(hdc, "◀", cardRightX, footY, 32, 28, app.hFontSmall, 0x00FCFAF8, 0x0025)
+
+		pageStr := fmt.Sprintf(i18n.T("Стр. %d из %d", "Page %d of %d"), app.serverPage+1, maxPages)
+		drawText(hdc, pageStr, cardRightX+38, footY, 100, 28, app.hFontSmall, 0x0094A3B8, 0x0025)
+
+		nextX := cardRightX + 144
+		nextBg := uint32(0xFF162032)
+		nextBorder := uint32(0xFF283954)
+		if app.hoverElement == HitServerPageNext {
+			nextBg = 0xFF223048
+			nextBorder = 0xFF00E5FF
+		}
+		drawSmoothCard(graphics, nextX, footY, 32, 28, 6, nextBg, nextBorder, 1.0)
+		drawText(hdc, "▶", nextX, footY, 32, 28, app.hFontSmall, 0x00FCFAF8, 0x0025)
+	}
+
+	// 5. Full-width Footer (y: 546)
+	drawText(hdc, "✓ TLS 1.3 Reality Stealth   •   ✓ TCP Chunker Active   •   ✓ Shield 200 OK   •   ✓ Zero-Logs", 20, 546, w-40, 20, app.hFontSmall, 0x0064748B, 0x0025)
 }
 
 func (app *AppState) renderServersTab(hdc, graphics uintptr, w, h int32) {
@@ -2156,40 +2383,144 @@ func hitTest(hwnd uintptr, x, y int32) int {
 	}
 
 	if gApp.currentTab == TabDashboard {
-		colW := (w - 50) / 2
+		colLeftW := int32(320)
 		cardLeftX := int32(20)
 		cardLeftY := int32(64)
 
-		btnCX := cardLeftX + colW/2
-		btnCY := cardLeftY + 80
+		// 1. Hero Button (circle at center of left card)
+		btnCX := cardLeftX + colLeftW/2
+		btnCY := cardLeftY + 76
 		dx := x - btnCX
 		dy := y - btnCY
-		if dx*dx+dy*dy <= 48*48 {
+		if dx*dx+dy*dy <= 46*46 {
 			return HitHeroButton
 		}
 
-		cardRightX := cardLeftX + colW + 10
-		badgeW := int32(80)
-		badgeX := cardRightX + colW - 16 - badgeW
-		badgeY := cardLeftY + 12
-		if x >= badgeX && x <= badgeX+badgeW && y >= badgeY && y <= badgeY+26 {
+		// 2. Active Server Ping Badge (top-right of hero card)
+		pingBadgeW := int32(76)
+		pingBadgeX := cardLeftX + colLeftW - 14 - pingBadgeW
+		pingBadgeY := cardLeftY + 12
+		if x >= pingBadgeX && x <= pingBadgeX+pingBadgeW && y >= pingBadgeY && y <= pingBadgeY+24 {
 			return HitActivePingBadge
 		}
 
-		swBtnY := cardLeftY + 158
-		swBtnW := colW - 32
-		if x >= cardRightX+16 && x <= cardRightX+16+swBtnW && y >= swBtnY && y <= swBtnY+38 {
-			return HitBtnSwitchServer
-		}
-
-		row3Y := int32(382)
+		// 3. System Proxy Toggle Card
+		row3Y := int32(362)
 		row3H := int32(76)
-		if x >= cardLeftX && x <= cardLeftX+colW && y >= row3Y && y <= row3Y+row3H {
+		if x >= cardLeftX && x <= cardLeftX+colLeftW && y >= row3Y && y <= row3Y+row3H {
 			return HitSysProxyCard
 		}
 
-		if x >= cardRightX && x <= cardRightX+colW && y >= row3Y && y <= row3Y+row3H {
+		// 4. Local SOCKS5 / HTTP Ports Card
+		row4Y := int32(448)
+		row4H := int32(76)
+		if x >= cardLeftX && x <= cardLeftX+colLeftW && y >= row4Y && y <= row4Y+row4H {
 			return HitPortsCard
+		}
+
+		// -------------------------------------------------------------
+		// RIGHT COLUMN (cardRightX: 355): Toolbar, Nodes, Pagination
+		// -------------------------------------------------------------
+		cardRightX := int32(355)
+		colRightW := w - 20 - cardRightX
+
+		// Subscription Toolbar Buttons (y: 92, h: 30)
+		subBtnY := int32(92)
+		subBtnH := int32(30)
+		bGap := int32(6)
+		b1W := int32(84)
+		b1X := cardRightX + 10
+		if y >= subBtnY && y <= subBtnY+subBtnH {
+			if x >= b1X && x <= b1X+b1W {
+				return HitBtnUpdateSub
+			}
+			b2X := b1X + b1W + bGap
+			b2W := int32(84)
+			if x >= b2X && x <= b2X+b2W {
+				return HitBtnImportClip
+			}
+			b3X := b2X + b2W + bGap
+			b3W := int32(84)
+			if x >= b3X && x <= b3X+b3W {
+				return HitBtnPingAll
+			}
+			b4X := b3X + b3W + bGap
+			b4W := int32(84)
+			if x >= b4X && x <= b4X+b4W {
+				return HitBtnAddServer
+			}
+			b5X := b4X + b4W + bGap
+			b5W := colRightW - 10 - (b5X - cardRightX)
+			if x >= b5X && x <= b5X+b5W {
+				return HitBtnSetSubURL
+			}
+		}
+
+		// Auto-best Button (y: 142..166)
+		headY := int32(144)
+		autoW := int32(130)
+		autoX := cardRightX + colRightW - autoW
+		if x >= autoX && x <= autoX+autoW && y >= headY-2 && y <= headY-2+24 {
+			return HitBtnAutoBest
+		}
+
+		// Live Server Cards List (y: 170, cardH: 64, gap: 8)
+		listY := int32(170)
+		cardH := int32(64)
+		gap := int32(8)
+		itemsPerPage := 4
+
+		gApp.mu.Lock()
+		srvCount := len(gApp.cfg.Servers)
+		gApp.mu.Unlock()
+
+		startIdx := gApp.serverPage * itemsPerPage
+		endIdx := startIdx + itemsPerPage
+		if endIdx > srvCount {
+			endIdx = srvCount
+		}
+
+		for i := startIdx; i < endIdx; i++ {
+			rowY := listY + int32(i-startIdx)*(cardH+gap)
+			if y >= rowY && y <= rowY+cardH && x >= cardRightX && x <= cardRightX+colRightW {
+				actBW := int32(84)
+				actBX := cardRightX + colRightW - 10 - actBW
+				pingBW := int32(66)
+				pingBX := actBX - 6 - pingBW
+				editBW := int32(28)
+				editBX := pingBX - 6 - editBW
+				delBW := int32(28)
+				delBX := editBX - 6 - delBW
+
+				if y >= rowY+18 && y <= rowY+18+28 {
+					if x >= delBX && x <= delBX+delBW {
+						return HitServerBaseDelete + i
+					}
+					if x >= editBX && x <= editBX+editBW {
+						return HitServerBaseEdit + i
+					}
+					if x >= pingBX && x <= pingBX+pingBW {
+						return HitServerBasePing + i
+					}
+					if x >= actBX && x <= actBX+actBW {
+						return HitServerBaseSelect + i
+					}
+				}
+				// Clicking anywhere else on the server card activates that server in 1 click!
+				return HitServerBaseSelect + i
+			}
+		}
+
+		// Pagination Controls (y: 462, h: 28)
+		if srvCount > itemsPerPage {
+			footY := int32(462)
+			if x >= cardRightX && x <= cardRightX+32 && y >= footY && y <= footY+28 {
+				return HitServerPagePrev
+			}
+			nextX := cardRightX + 144
+			if x >= nextX && x <= nextX+32 && y >= footY && y <= footY+28 {
+				return HitServerPageNext
+			}
 		}
 
 	} else {
@@ -2955,11 +3286,21 @@ func Run(cfgPath string, c *client.Client, cfg *client.Config, autoConnect bool)
 		}
 	}
 
+	// Load embedded application icons (resource ID 1 or 7 from rsrc_windows_amd64.syso)
+	hIcon, _, _ := pLoadImageW.Call(hInstance, 1, 1, 32, 32, 0)
+	hIconSm, _, _ := pLoadImageW.Call(hInstance, 1, 1, 16, 16, 0)
+	if hIcon == 0 {
+		hIcon, _, _ = pLoadImageW.Call(hInstance, 7, 1, 32, 32, 0)
+		hIconSm, _, _ = pLoadImageW.Call(hInstance, 7, 1, 16, 16, 0)
+	}
+
 	wc := WNDCLASSEXW{
 		CbSize:        uint32(unsafe.Sizeof(WNDCLASSEXW{})),
 		Style:         0x0002 | 0x0001,
 		LpfnWndProc:   syscall.NewCallback(mainWndProc),
 		HInstance:     hInstance,
+		HIcon:         hIcon,
+		HIconSm:       hIconSm,
 		HCursor:       hCursorArr,
 		HbrBackground: hBrushBg,
 		LpszClassName: className,
@@ -2970,8 +3311,8 @@ func Run(cfgPath string, c *client.Client, cfg *client.Config, autoConnect bool)
 		return fmt.Errorf("RegisterClassExW failed: %w", err)
 	}
 
-	clientW := int32(680)
-	clientH := int32(530)
+	clientW := int32(840)
+	clientH := int32(580)
 	var wr RECT
 	wr.Left = 0
 	wr.Top = 0
@@ -3000,6 +3341,11 @@ func Run(cfgPath string, c *client.Client, cfg *client.Config, autoConnect bool)
 		return fmt.Errorf("CreateWindowExW failed: %w", err)
 	}
 	gApp.hwndMain = hwnd
+
+	if hIcon != 0 {
+		pSendMessageW.Call(hwnd, 0x0080, 1, hIcon)
+		pSendMessageW.Call(hwnd, 0x0080, 0, hIconSm)
+	}
 
 	darkMode := int32(1)
 	pDwmSetWindowAttribute.Call(hwnd, 20, uintptr(unsafe.Pointer(&darkMode)), 4)

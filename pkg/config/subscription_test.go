@@ -94,3 +94,25 @@ func TestDecodeURIFallbackNoUser(t *testing.T) {
 		t.Errorf("expected TestServer, got %s", prof.Name)
 	}
 }
+
+func TestParseSubscriptionMultiLines(t *testing.T) {
+	text := "shadowstar://key1@1.2.3.4:443/?sni=www.microsoft.com#Node1\n" +
+		"key2@5.6.7.8:443\n" +
+		"9.10.11.12:4433:key3\n"
+	profiles, err := ParseSubscriptionContent([]byte(text))
+	if err != nil {
+		t.Fatalf("ParseSubscriptionContent failed on multi-lines: %v", err)
+	}
+	if len(profiles) != 3 {
+		t.Fatalf("expected 3 profiles, got %d", len(profiles))
+	}
+	if profiles[0].ServerAddr != "1.2.3.4:443" || profiles[0].MasterKey != "key1" {
+		t.Errorf("profile 0 mismatch: %+v", profiles[0])
+	}
+	if profiles[1].ServerAddr != "5.6.7.8:443" || profiles[1].MasterKey != "key2" {
+		t.Errorf("profile 1 mismatch: %+v", profiles[1])
+	}
+	if profiles[2].ServerAddr != "9.10.11.12:4433" || profiles[2].MasterKey != "key3" {
+		t.Errorf("profile 2 mismatch: %+v", profiles[2])
+	}
+}

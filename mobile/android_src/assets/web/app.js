@@ -62,7 +62,13 @@ const i18n = {
     noNodesToConnect: 'Нет узлов для подключения',
     nodeAdded: 'Узел успешно добавлен',
     nodeSaved: 'Узел успешно сохранён',
-    nodeDeleted: 'Узел удалён'
+    nodeDeleted: 'Узел удалён',
+    toolUpdateSub: 'Обновить',
+    quickSwitchTitle: 'Быстрое переключение',
+    viewAllNodes: 'Все узлы →',
+    subSuccess: 'Узлы из подписки успешно загружены',
+    subEmpty: 'В подписке не найдено узлов',
+    subFetchFail: 'Ошибка загрузки подписки'
   },
   en: {
     brandSub: 'STEALTH REALITY VPN • MOBILE',
@@ -123,7 +129,13 @@ const i18n = {
     noNodesToConnect: 'No nodes to connect',
     nodeAdded: 'Node added successfully',
     nodeSaved: 'Node saved successfully',
-    nodeDeleted: 'Node deleted'
+    nodeDeleted: 'Node deleted',
+    toolUpdateSub: 'Update',
+    quickSwitchTitle: 'Quick Switch',
+    viewAllNodes: 'All Nodes →',
+    subSuccess: 'Subscription nodes updated successfully',
+    subEmpty: 'No nodes found in subscription',
+    subFetchFail: 'Failed to load subscription'
   }
 };
 
@@ -507,6 +519,19 @@ function selectServer(id) {
   const s = state.servers.find(x => x.id === id);
   if (s) {
     showToast(s.name);
+    // 1-Click Server Switch: If currently connected, seamlessly reconnect with the newly selected profile!
+    if (state.connected) {
+      if (window.AndroidBridge && window.AndroidBridge.startVpnWithProfile) {
+        window.AndroidBridge.startVpnWithProfile(
+          s.name || 'ShadowStar Node',
+          s.addr,
+          s.key,
+          s.sni || 'www.microsoft.com'
+        );
+      } else if (window.AndroidBridge && window.AndroidBridge.startVpn) {
+        window.AndroidBridge.startVpn();
+      }
+    }
   }
 }
 
@@ -752,13 +777,22 @@ async function pasteIntoInput(targetId) {
   }
 }
 
-// --- Subscription Modal ---
+// --- Subscription Management ---
 function openSubModal() {
   document.getElementById('input-sub-url').value = localStorage.getItem('shadowstar_sub_url') || '';
   openModal('modal-sub');
 }
 
-function saveSubscription() {
+async function updateSubscriptionNow() {
+  const url = localStorage.getItem('shadowstar_sub_url');
+  if (!url || !url.trim()) {
+    openSubModal();
+    return;
+  }
+  await fetchAndApplySubscription(url);
+}
+
+async function saveSubscription() {
   const url = document.getElementById('input-sub-url').value.trim();
   if (!url) {
     showToast(state.currentLang === 'ru' ? 'Введите URL подписки' : 'Enter subscription URL');
@@ -766,7 +800,191 @@ function saveSubscription() {
   }
   localStorage.setItem('shadowstar_sub_url', url);
   closeModal('modal-sub');
-  showToast(state.currentLang === 'ru' ? 'Подписка сохранена' : 'Subscription saved');
+  await fetchAndApplySubscription(url);
+}
+
+async function fetchAndApplySubscription(url) {
+  if (!url || !url.trim()) return false;
+  showToast(state.currentLang === 'ru' ? '⏳ Загрузка подписки...' : '⏳ Loading subscription...');
+
+  let raw = '';
+  if (window.AndroidBridge && window.AndroidBridge.fetchSubscription) {
+    try {
+      raw = window.AndroidBridge.fetchSubscription(url.trim());
+    } catch (e) {
+      console.warn('AndroidBridge.fetchSubscription error:', e);
+    }
+  }
+
+  if (!raw) {
+    try {
+      const resp = await fetch(url.trim(), { headers: { 'Accept': 'text/plain, application/json, */*' } });
+      if (resp.ok) {
+        raw = await resp.text();
+      }
+    } catch (e) {
+      console.warn('Browser fetch failed:', e);
+    }
+  }
+
+  if (!raw || !raw.trim()) {
+    showToast(t('subFetchFail'));
+    return false;
+  }
+
+  const nodes = parseSubscriptionText(raw);
+  if (!nodes || nodes.length === 0) {
+    showToast(t('subEmpty'));
+    return false;
+  }
+
+  state.servers = nodes;
+  state.activeServerId = nodes[0].id;
+  saveStoredServers();
+  renderAll();
+  showToast(state.currentLang === 'ru' ? `✓ Загружено узлов: ${nodes.length}` : `✓ Loaded ${nodes.length} nodes`);
+
+  if (state.connected) {
+    const s = nodes[0];
+    if (window.AndroidBridge && window.AndroidBridge.startVpnWithProfile) {
+      window.AndroidBridge.startVpnWithProfile(s.name, s.addr, s.key, s.sni || 'www.microsoft.com');
+    }
+  }
+  return true;
+}
+
+function parseSubscriptionText(raw) {
+  if (!raw || typeof raw !== 'string') return [];
+  let text = raw.trim();
+
+  // Try decoding whole Base64
+  if (!text.startsWith('[') && !text.startsWith('{') && !text.includes('://')) {
+    try {
+      const cleanB64 = text.replace(/[\r\n\s]/g, '');
+      const decoded = atob(cleanB64);
+      if (decoded && decoded.length > 5) {
+        text = decoded.trim();
+      }
+    } catch (e) {}
+  }
+
+  // 1. JSON array or object
+  if (text.startsWith('[') || text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text);
+      const list = Array.isArray(parsed) ? parsed : (parsed.servers || parsed.nodes || []);
+      if (Array.isArray(list) && list.length > 0) {
+        const res = list.map((item, idx) => {
+          const addr = item.server_addr || item.addr || '';
+          const key = item.master_key || item.key || '';
+          const name = item.name || ('Node ' + (addr.split(':')[0] || (idx + 1)));
+          const sni = item.sni || 'www.microsoft.com';
+          const country = item.country || detectCountry(name, addr);
+          return {
+            id: item.id || ('sub-node-' + idx + '-' + Date.now()),
+            name: name,
+            addr: addr,
+            key: key,
+            sni: sni,
+            country: country,
+            ping: item.ping || Math.floor(Math.random() * 25) + 15
+          };
+        }).filter(n => n.addr && n.key);
+        if (res.length > 0) return res;
+      }
+    } catch (e) {}
+  }
+
+  // 2. Multi-line plain text
+  const lines = text.split(/\r?\n/);
+  const result = [];
+  lines.forEach((rawLine, idx) => {
+    let line = rawLine.trim();
+    if (!line || line.startsWith('#') || line.startsWith('//') || line.startsWith(';')) return;
+
+    if (!line.includes('://') && !line.includes('@') && line.length > 20 && !line.includes(' ')) {
+      try {
+        const dec = atob(line);
+        if (dec && (dec.includes('://') || dec.includes('@'))) {
+          line = dec.trim();
+        }
+      } catch (e) {}
+    }
+
+    let nodeAddr = '';
+    let masterKey = '';
+    let sni = 'www.microsoft.com';
+    let nodeName = '';
+
+    if (line.startsWith('shadowstar://')) {
+      try {
+        const u = new URL(line);
+        masterKey = decodeURIComponent(u.username || '');
+        nodeAddr = u.host || '';
+        if (u.searchParams.get('sni')) sni = u.searchParams.get('sni');
+        if (u.searchParams.get('name')) nodeName = decodeURIComponent(u.searchParams.get('name'));
+      } catch (e) {
+        const after = line.substring('shadowstar://'.length);
+        const atIdx = after.indexOf('@');
+        if (atIdx !== -1) {
+          masterKey = after.substring(0, atIdx);
+          const rest = after.substring(atIdx + 1);
+          const qIdx = rest.indexOf('?');
+          nodeAddr = qIdx !== -1 ? rest.substring(0, qIdx) : rest;
+        }
+      }
+    } else if (line.includes('@')) {
+      const parts = line.split('@');
+      masterKey = parts[0].trim();
+      nodeAddr = parts[1].trim();
+    } else if (line.includes(':')) {
+      const parts = line.split(':');
+      if (parts.length >= 3) {
+        nodeAddr = parts[0].trim() + ':' + parts[1].trim();
+        masterKey = parts[2].trim();
+      }
+    }
+
+    if (nodeAddr && masterKey) {
+      if (!nodeName) {
+        nodeName = 'Node ' + (nodeAddr.includes(':') ? nodeAddr.split(':')[0] : nodeAddr);
+      }
+      result.push({
+        id: 'sub-node-' + idx + '-' + Date.now(),
+        name: nodeName,
+        addr: nodeAddr,
+        key: masterKey,
+        sni: sni,
+        country: detectCountry(nodeName, nodeAddr),
+        ping: Math.floor(Math.random() * 25) + 15
+      });
+    }
+  });
+
+  return result;
+}
+
+function renderQuickNodesList() {
+  const container = document.getElementById('quick-nodes-container');
+  const listEl = document.getElementById('quick-nodes-list');
+  if (!container || !listEl) return;
+
+  if (!state.servers || state.servers.length <= 1) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = 'block';
+
+  listEl.innerHTML = state.servers.map(s => {
+    const isAct = (s.id === state.activeServerId);
+    return `
+      <div class="quick-node-chip ${isAct ? 'active' : ''}" onclick="selectServer('${s.id}')">
+        <span class="chip-flag">${escapeHtml(s.country || 'VIP')}</span>
+        <span class="chip-name">${escapeHtml(s.name)}</span>
+        <span class="chip-ping">${s.ping || 25}ms</span>
+      </div>
+    `;
+  }).join('');
 }
 
 // --- Modals General ---
@@ -828,6 +1046,7 @@ function escapeHtml(str) {
 function renderAll() {
   renderPowerButton();
   renderActiveNodeCard();
+  renderQuickNodesList();
   if (state.currentTab === 'servers') {
     renderServersList();
   }

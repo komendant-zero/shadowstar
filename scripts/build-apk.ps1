@@ -77,12 +77,20 @@ function Build-Variant {
     [System.IO.File]::WriteAllText("$VarWork\assets\config.json", $CfgJson, $Utf8NoBom)
     Copy-Item "$SrcRoot\assets\web\manifest.json" "$VarWork\assets\" -Force
     Copy-Item "$SrcRoot\assets\web\sw.js" "$VarWork\assets\" -Force
+    Copy-Item "$SrcRoot\assets\web\icon-192.png" "$VarWork\assets\" -Force -ErrorAction SilentlyContinue
+    Copy-Item "$SrcRoot\assets\web\icon-512.png" "$VarWork\assets\" -Force -ErrorAction SilentlyContinue
+    Copy-Item "$SrcRoot\assets\web\favicon.ico" "$VarWork\assets\" -Force -ErrorAction SilentlyContinue
 
     # Also keep web/ subfolder copy
     [System.IO.File]::WriteAllText("$VarWork\assets\web\index.html", $BundledHtml, $Utf8NoBom)
     [System.IO.File]::WriteAllText("$VarWork\assets\web\style.css", $RawCss, $Utf8NoBom)
     [System.IO.File]::WriteAllText("$VarWork\assets\web\app.js", $RawJs, $Utf8NoBom)
     [System.IO.File]::WriteAllText("$VarWork\assets\web\config.json", $CfgJson, $Utf8NoBom)
+    Copy-Item "$SrcRoot\assets\web\manifest.json" "$VarWork\assets\web\" -Force -ErrorAction SilentlyContinue
+    Copy-Item "$SrcRoot\assets\web\sw.js" "$VarWork\assets\web\" -Force -ErrorAction SilentlyContinue
+    Copy-Item "$SrcRoot\assets\web\icon-192.png" "$VarWork\assets\web\" -Force -ErrorAction SilentlyContinue
+    Copy-Item "$SrcRoot\assets\web\icon-512.png" "$VarWork\assets\web\" -Force -ErrorAction SilentlyContinue
+    Copy-Item "$SrcRoot\assets\web\favicon.ico" "$VarWork\assets\web\" -Force -ErrorAction SilentlyContinue
 
     # 2. Link with aapt2
     Write-Host "[2/7] Linking APK with aapt2..." -ForegroundColor Yellow

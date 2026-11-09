@@ -788,3 +788,71 @@ body {
 .toast.show {
   transform: translateX(-50%) translateY(0);
 }
+
+/* Quick Nodes Switcher */
+.quick-nodes-section {
+  margin-bottom: 16px;
+}
+.quick-nodes-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+.quick-nodes-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 6px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.quick-nodes-scroll::-webkit-scrollbar {
+  display: none;
+}
+.quick-node-chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.quick-node-chip:active {
+  transform: scale(0.96);
+}
+.quick-node-chip.active {
+  background: rgba(0, 229, 255, 0.12);
+  border-color: var(--accent-cyan);
+}
+.quick-node-chip .chip-flag {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.15);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.quick-node-chip .chip-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  max-width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quick-node-chip.active .chip-name {
+  color: var(--accent-cyan);
+}
+.quick-node-chip .chip-ping {
+  font-size: 10px;
+  color: var(--accent-green);
+  font-family: monospace;
+}

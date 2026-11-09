@@ -92,17 +92,48 @@ func ParseSubscriptionContent(content []byte) ([]client.ServerProfile, error) {
 		}
 	}
 
-	// 3. Line-by-line parsing of shadowstar:// URIs
+	// 3. Line-by-line parsing of shadowstar:// URIs and compact formats
 	lines := strings.Split(trimmed, "\n")
 	var profiles []client.ServerProfile
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") || strings.HasPrefix(line, ";") {
 			continue
 		}
+		// Try individual line base64 decode
+		if !strings.HasPrefix(line, "shadowstar://") {
+			if b, err := base64.StdEncoding.DecodeString(line); err == nil && len(b) > 0 && strings.HasPrefix(string(b), "shadowstar://") {
+				line = strings.TrimSpace(string(b))
+			} else if b, err := base64.RawURLEncoding.DecodeString(line); err == nil && len(b) > 0 && strings.HasPrefix(string(b), "shadowstar://") {
+				line = strings.TrimSpace(string(b))
+			}
+		}
+
 		if strings.HasPrefix(line, "shadowstar://") {
 			prof, err := DecodeURIToProfile(line)
 			if err == nil && prof != nil {
+				profiles = append(profiles, *prof)
+			}
+		} else if strings.Contains(line, "@") {
+			prof, err := DecodeURIToProfile("shadowstar://" + line)
+			if err == nil && prof != nil {
+				profiles = append(profiles, *prof)
+			}
+		} else if strings.Count(line, ":") >= 2 {
+			// host:port:key
+			parts := strings.Split(line, ":")
+			if len(parts) >= 3 {
+				hostPort := parts[0] + ":" + parts[1]
+				key := parts[2]
+				prof := &client.ServerProfile{
+					ID:         fmt.Sprintf("node-%d", time.Now().UnixNano()+int64(len(profiles))),
+					Name:       "Node " + parts[0],
+					ServerAddr: hostPort,
+					MasterKey:  key,
+					SNI:        "www.microsoft.com",
+					EnableChunker: true,
+					PaddingLen: 64,
+				}
 				profiles = append(profiles, *prof)
 			}
 		}

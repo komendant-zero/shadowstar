@@ -62,7 +62,7 @@ else
     # Remote update check (if git repository / URL is configured)
     echo -e "${CYAN}[*] Fetching latest release...${NC}"
     # Example remote URL endpoint
-    DOWNLOAD_URL="https://github.com/shadowstar/shadowstar/releases/latest/download/shadowstar-server-$BIN_ARCH"
+    DOWNLOAD_URL="https://github.com/komendant-zero/shadowstar/releases/latest/download/shadowstar-server-$BIN_ARCH"
     if curl -sLf "$DOWNLOAD_URL" -o "$INSTALL_BIN.new"; then
         chmod +x "$INSTALL_BIN.new"
     else

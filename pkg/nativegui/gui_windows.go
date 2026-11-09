@@ -2345,7 +2345,7 @@ func (app *AppState) handleHitClick(hwnd uintptr, hit int, pt POINT) {
 			}
 			app.mu.Unlock()
 			if url == "" {
-				url = "https://github.com/shadowstar/shadowstar/releases/latest"
+				url = "https://github.com/komendant-zero/shadowstar/releases/latest"
 			}
 			_ = updater.OpenURL(url)
 			app.closeModal()
@@ -2898,7 +2898,7 @@ func (app *AppState) showSettingsMenu(hwnd uintptr, pt POINT) {
 		i18n.ToggleLang()
 		pInvalidateRect.Call(hwnd, 0, 0)
 	case 109:
-		_ = updater.OpenURL("https://github.com/shadowstar/shadowstar")
+		_ = updater.OpenURL("https://github.com/komendant-zero/shadowstar")
 	}
 }
 

@@ -12,7 +12,7 @@ import (
 
 const (
 	CurrentVersion = "v1.3.0"
-	DefaultRepo    = "shadowstar/shadowstar"
+	DefaultRepo    = "komendant-zero/shadowstar"
 )
 
 // ReleaseInfo holds GitHub release metadata

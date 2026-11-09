@@ -1,6 +1,6 @@
 # ⭐ ShadowStar (SSP) • Next-Gen Anti-DPI Stealth Proxy
 
-[![GitHub Release](https://img.shields.io/badge/release-v1.3.0-blue.svg)](https://github.com/shadowstar/shadowstar/releases)
+[![GitHub Release](https://img.shields.io/badge/release-v1.3.0-blue.svg)](https://github.com/komendant-zero/shadowstar/releases)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8.svg)](https://golang.org)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-green.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -72,7 +72,7 @@ Written in pure Go using native Windows Win32 API and GDI+ (no Chromium, no WebV
 ### 🚀 Server Quick Start (Linux VPS)
 Run one-line automated installation on Ubuntu, Debian, CentOS, or AlmaLinux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shadowstar/shadowstar/main/scripts/install.sh -o install.sh && sudo bash install.sh
+curl -fsSL https://raw.githubusercontent.com/komendant-zero/shadowstar/main/scripts/install.sh -o install.sh && sudo bash install.sh
 ```
 The installer configures:
 - Automated system architecture detection (`x86_64` / `aarch64`)

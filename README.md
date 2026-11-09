@@ -62,10 +62,11 @@ Written in pure Go using native Windows Win32 API and GDI+ (no Chromium, no WebV
 - **In-App Updater**: Automatically checks GitHub Releases for new updates.
 - **Language Switch**: Click `[RU | EN]` in the header to switch languages instantly.
 
-### 📱 Mobile Client (Android & iOS)
-- **Standalone Mobile Gateway**: `bin/shadowstar-mobile.exe` or `bin/shadowstar-mobile-android-arm64`.
-- **Progressive Web App (PWA)**: Open `http://<IP>:10810` on your mobile browser and tap **Add to Home Screen**.
-- **Android Native**: Ready-to-build Android Studio project in `mobile/android/` with background `ShadowStarVpnService`.
+### 📱 Mobile Client (Android APK & PWA)
+- **Direct Android APK**: Download the signed APK directly from [GitHub Releases](https://github.com/komendant-zero/shadowstar/releases) (`ShadowStar.apk`), install on your Android phone, and tap Connect!
+- **Local APK Build**: Run `powershell -ExecutionPolicy Bypass -File scripts/build-apk.ps1` to automatically build and sign debug APKs using Android SDK 34 (`aapt2`, `javac`, `d8`, `zipalign`, `apksigner`).
+- **Progressive Web App (PWA)**: Open `http://<IP>:10810` on any mobile browser (iOS/Android) and tap **Add to Home Screen**.
+- **Android Native Sources**: Source code located in `mobile/android_src/` with hardware-accelerated WebView UI and background `ShadowStarVpnService`.
 
 ---
 
@@ -108,12 +109,11 @@ The installer configures:
 
 ---
 
-### 📱 Мобильная версия (Mobile Gateway & PWA)
-- Все веб-ресурсы встроены в бинарный файл (`//go:embed`).
-- **Запуск шлюза**: `bin/shadowstar-mobile.exe -c shadowstar-mobile.personal.json`
-- Откройте в браузере телефона адрес (например: `http://192.168.1.50:10810`).
-- Нажмите **«Добавить на главный экран»** (Add to Home Screen) — приложение установится как нативное PWA с полноэкранным интерфейсом и тактильным откликом.
-- В репозитории в каталоге `mobile/android/` доступен полноценный проект Android Studio с сервисом `VpnService`.
+### 📱 Мобильная версия (Android APK и PWA)
+- **Готовый установочный APK-файл**: Скачайте готовый подписанный `ShadowStar.apk` прямо из [GitHub Releases](https://github.com/komendant-zero/shadowstar/releases). Установите на телефон и подключитесь в один клик.
+- **Автоматическая сборка APK**: Скрипт `powershell -ExecutionPolicy Bypass -File scripts/build-apk.ps1` собирает и подписывает APK с помощью инструментов Android SDK 34 (`aapt2`, `javac`, `d8`, `zipalign`, `apksigner`).
+- **PWA (iOS и Android)**: Откройте в браузере телефона адрес мобильного шлюза (например: `http://192.168.1.50:10810`) и нажмите **«Добавить на главный экран»** (Add to Home Screen).
+- **Исходный код Android**: Расположен в каталоге `mobile/android_src/` с нативным `VpnService`, аппаратным ускорением WebView и поддержкой всех версий Android от 8.0 до 15+.
 
 ---
 
@@ -121,6 +121,7 @@ The installer configures:
 
 ### Автоматическая сборка GitHub Releases
 В репозитории настроен GitHub Actions Workflow (`.github/workflows/release.yml`), который при пуше тега версии (`v*`) автоматически собирает релизные архивы под все платформы:
+- `ShadowStar.apk` — Готовое Android-приложение (APK, v2/v3 signature)
 - `shadowstar-windows-amd64.zip` — Windows Desktop GUI & Client
 - `shadowstar-linux-amd64.tar.gz` — Linux x86_64 CLI Client & Server
 - `shadowstar-linux-arm64.tar.gz` — Linux ARM64 CLI Client & Server

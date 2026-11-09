@@ -27,6 +27,8 @@ release_notes.md
 # ==============================================================================
 .gocache/
 .gopath/
+.gradle/
+mobile/apk_build/
 *.tmp
 *.log
 err.txt
@@ -39,6 +41,8 @@ step*.txt
 # ==============================================================================
 .vscode/
 .idea/
+local.properties
+*.keystore
 .DS_Store
 Thumbs.db
 Desktop.ini

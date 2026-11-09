@@ -6,6 +6,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.net.VpnService;
+import android.os.Build;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -61,9 +62,9 @@ public class MainActivity extends Activity {
         if (html != null && !html.isEmpty()) {
             webView.loadDataWithBaseURL("https://shadowstar.app/", html, "text/html", "UTF-8", null);
         } else {
-            String fallback = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+            String fallback = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>"
                     + "<style>body{background:#090D16;color:#FFF;font-family:sans-serif;padding:24px;text-align:center;}</style></head>"
-                    + "<body><h2>⭐ SHADOWSTAR</h2><p>Loading interface...</p></body></html>";
+                    + "<body><h2>⭐ SHADOWSTAR</h2><p>Загрузка интерфейса...</p></body></html>";
             webView.loadDataWithBaseURL("https://shadowstar.app/", fallback, "text/html", "UTF-8", null);
         }
     }
@@ -79,7 +80,7 @@ public class MainActivity extends Activity {
                     out.write(buf, 0, n);
                 }
                 return out.toString("UTF-8");
-            } catch (Exception ignored) {
+            } catch (Throwable ignored) {
             }
         }
         return "";
@@ -111,7 +112,7 @@ public class MainActivity extends Activity {
                     pb.directory(activity.getFilesDir());
                     activity.daemonProcess = pb.start();
                 }
-            } catch (Exception ignored) {
+            } catch (Throwable ignored) {
             }
         }
     }
@@ -127,7 +128,7 @@ public class MainActivity extends Activity {
                     out.write(buf, 0, n);
                 }
                 return;
-            } catch (Exception ignored) {
+            } catch (Throwable ignored) {
             }
         }
     }
@@ -137,9 +138,21 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == VPN_REQUEST_CODE) {
             if (resultCode == RESULT_OK) {
-                Intent vpnIntent = new Intent(this, ShadowStarVpnService.class);
-                vpnIntent.setAction("START");
-                startService(vpnIntent);
+                try {
+                    Intent vpnIntent = new Intent(this, ShadowStarVpnService.class);
+                    vpnIntent.setAction("START");
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(vpnIntent);
+                    } else {
+                        startService(vpnIntent);
+                    }
+                } catch (Throwable t) {
+                    try {
+                        Intent vpnIntent = new Intent(this, ShadowStarVpnService.class);
+                        vpnIntent.setAction("START");
+                        startService(vpnIntent);
+                    } catch (Throwable ignored) {}
+                }
                 Toast.makeText(this, "✓ ShadowStar VPN запущен", Toast.LENGTH_SHORT).show();
                 if (webView != null) {
                     webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(true);", null);
@@ -166,7 +179,9 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         if (daemonProcess != null) {
-            daemonProcess.destroy();
+            try {
+                daemonProcess.destroy();
+            } catch (Throwable ignored) {}
         }
     }
 
@@ -209,16 +224,24 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void copyToClipboard(String text) {
-            ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
-            if (cm != null) {
-                cm.setPrimaryClip(ClipData.newPlainText("shadowstar", text));
-                Toast.makeText(activity, "✓ Скопировано в буфер!", Toast.LENGTH_SHORT).show();
-            }
+            activity.runOnUiThread(() -> {
+                try {
+                    ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(ClipData.newPlainText("shadowstar", text));
+                        Toast.makeText(activity, "✓ Скопировано в буфер!", Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Throwable ignored) {}
+            });
         }
 
         @JavascriptInterface
         public void showToast(String msg) {
-            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show();
+            activity.runOnUiThread(() -> {
+                try {
+                    Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show();
+                } catch (Throwable ignored) {}
+            });
         }
 
         @JavascriptInterface
@@ -236,16 +259,32 @@ public class MainActivity extends Activity {
 
         @Override
         public void run() {
-            Intent prepare = VpnService.prepare(activity);
-            if (prepare != null) {
-                activity.startActivityForResult(prepare, VPN_REQUEST_CODE);
-            } else {
-                Intent vpnIntent = new Intent(activity, ShadowStarVpnService.class);
-                vpnIntent.setAction("START");
-                activity.startService(vpnIntent);
-                if (activity.webView != null) {
-                    activity.webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(true);", null);
+            try {
+                Intent prepare = VpnService.prepare(activity);
+                if (prepare != null) {
+                    activity.startActivityForResult(prepare, VPN_REQUEST_CODE);
+                } else {
+                    Intent vpnIntent = new Intent(activity, ShadowStarVpnService.class);
+                    vpnIntent.setAction("START");
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            activity.startForegroundService(vpnIntent);
+                        } else {
+                            activity.startService(vpnIntent);
+                        }
+                    } catch (Throwable t) {
+                        try {
+                            activity.startService(vpnIntent);
+                        } catch (Throwable ignored) {}
+                    }
+                    if (activity.webView != null) {
+                        activity.webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(true);", null);
+                    }
                 }
+            } catch (Throwable t) {
+                try {
+                    Toast.makeText(activity, "Ошибка запуска: " + t.getMessage(), Toast.LENGTH_LONG).show();
+                } catch (Throwable ignored) {}
             }
         }
     }
@@ -259,12 +298,16 @@ public class MainActivity extends Activity {
 
         @Override
         public void run() {
-            Intent vpnIntent = new Intent(activity, ShadowStarVpnService.class);
-            vpnIntent.setAction("STOP");
-            activity.startService(vpnIntent);
-            if (activity.webView != null) {
-                activity.webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(false);", null);
-            }
+            try {
+                Intent vpnIntent = new Intent(activity, ShadowStarVpnService.class);
+                vpnIntent.setAction("STOP");
+                try {
+                    activity.startService(vpnIntent);
+                } catch (Throwable ignored) {}
+                if (activity.webView != null) {
+                    activity.webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(false);", null);
+                }
+            } catch (Throwable ignored) {}
         }
     }
 }

@@ -55,13 +55,14 @@ function Build-Variant {
     $VarWork = "$WorkDir\$VariantName"
     New-Item -ItemType Directory -Path "$VarWork\assets\web", "$VarWork\dex" -Force | Out-Null
 
-    # Read base assets
-    $RawHtml = Get-Content -Raw "$SrcRoot\assets\web\index.html"
-    $RawCss  = Get-Content -Raw "$SrcRoot\assets\web\style.css"
-    $RawJs   = Get-Content -Raw "$SrcRoot\assets\web\app.js"
+    # Read base assets with explicit UTF-8 encoding
+    $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $RawHtml = [System.IO.File]::ReadAllText("$SrcRoot\assets\web\index.html", [System.Text.Encoding]::UTF8)
+    $RawCss  = [System.IO.File]::ReadAllText("$SrcRoot\assets\web\style.css", [System.Text.Encoding]::UTF8)
+    $RawJs   = [System.IO.File]::ReadAllText("$SrcRoot\assets\web\app.js", [System.Text.Encoding]::UTF8)
     $CfgJson = "{}"
     if (Test-Path $ConfigPath) {
-        $CfgJson = Get-Content -Raw $ConfigPath
+        $CfgJson = [System.IO.File]::ReadAllText($ConfigPath, [System.Text.Encoding]::UTF8)
     }
 
     # Bundle all CSS, JS and Config directly into a single self-contained HTML
@@ -70,19 +71,19 @@ function Build-Variant {
     $BundledHtml = $BundledHtml.Replace('</head>', $InjectedHead)
     $BundledHtml = $BundledHtml.Replace('<script src="./app.js"></script>', "<script>`n$RawJs`n</script>")
 
-    # Save flat assets (prevents any Windows backslash in zip entry paths)
-    Set-Content -Path "$VarWork\assets\index.html" -Value $BundledHtml -Encoding utf8
-    Set-Content -Path "$VarWork\assets\style.css" -Value $RawCss -Encoding utf8
-    Set-Content -Path "$VarWork\assets\app.js" -Value $RawJs -Encoding utf8
-    Set-Content -Path "$VarWork\assets\config.json" -Value $CfgJson -Encoding utf8
+    # Save flat assets (prevents any Windows backslash in zip entry paths, UTF-8 without BOM)
+    [System.IO.File]::WriteAllText("$VarWork\assets\index.html", $BundledHtml, $Utf8NoBom)
+    [System.IO.File]::WriteAllText("$VarWork\assets\style.css", $RawCss, $Utf8NoBom)
+    [System.IO.File]::WriteAllText("$VarWork\assets\app.js", $RawJs, $Utf8NoBom)
+    [System.IO.File]::WriteAllText("$VarWork\assets\config.json", $CfgJson, $Utf8NoBom)
     Copy-Item "$SrcRoot\assets\web\manifest.json" "$VarWork\assets\" -Force
     Copy-Item "$SrcRoot\assets\web\sw.js" "$VarWork\assets\" -Force
 
     # Also keep web/ subfolder copy
-    Copy-Item "$VarWork\assets\index.html" "$VarWork\assets\web\index.html" -Force
-    Copy-Item "$VarWork\assets\style.css" "$VarWork\assets\web\style.css" -Force
-    Copy-Item "$VarWork\assets\app.js" "$VarWork\assets\web\app.js" -Force
-    Copy-Item "$VarWork\assets\config.json" "$VarWork\assets\web\config.json" -Force
+    [System.IO.File]::WriteAllText("$VarWork\assets\web\index.html", $BundledHtml, $Utf8NoBom)
+    [System.IO.File]::WriteAllText("$VarWork\assets\web\style.css", $RawCss, $Utf8NoBom)
+    [System.IO.File]::WriteAllText("$VarWork\assets\web\app.js", $RawJs, $Utf8NoBom)
+    [System.IO.File]::WriteAllText("$VarWork\assets\web\config.json", $CfgJson, $Utf8NoBom)
 
     # 2. Link with aapt2
     Write-Host "[2/7] Linking APK with aapt2..." -ForegroundColor Yellow

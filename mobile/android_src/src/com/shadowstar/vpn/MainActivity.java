@@ -14,6 +14,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -29,7 +30,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Start background Go daemon if native library exists
         startGoDaemonAsync();
 
         webView = new WebView(this);
@@ -41,58 +41,94 @@ public class MainActivity extends Activity {
         settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
 
         webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new SafeWebViewClient(this));
 
         webView.addJavascriptInterface(new AndroidBridge(this), "AndroidBridge");
-
         setContentView(webView);
 
-        // Load the embedded mobile interface
-        webView.loadUrl("file:///android_asset/web/index.html");
+        loadEmbeddedHtml();
+    }
+
+    public void loadEmbeddedHtml() {
+        String html = loadAsset("index.html");
+        if (html != null && !html.isEmpty()) {
+            webView.loadDataWithBaseURL("https://shadowstar.app/", html, "text/html", "UTF-8", null);
+        } else {
+            String fallback = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+                    + "<style>body{background:#090D16;color:#FFF;font-family:sans-serif;padding:24px;text-align:center;}</style></head>"
+                    + "<body><h2>⭐ SHADOWSTAR</h2><p>Loading interface...</p></body></html>";
+            webView.loadDataWithBaseURL("https://shadowstar.app/", fallback, "text/html", "UTF-8", null);
+        }
+    }
+
+    public String loadAsset(String name) {
+        String[] candidates = new String[]{name, "web/" + name, "web\\" + name};
+        for (String candidate : candidates) {
+            try (InputStream in = getAssets().open(candidate);
+                 ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                }
+                return out.toString("UTF-8");
+            } catch (Exception ignored) {
+            }
+        }
+        return "";
     }
 
     private void startGoDaemonAsync() {
-        new Thread(() -> {
-            try {
-                File binFile = new File(getApplicationInfo().nativeLibraryDir, "libshadowstar.so");
-                if (!binFile.exists()) {
-                    File target = new File(getFilesDir(), "shadowstar-daemon");
-                    if (!target.exists()) {
-                        InputStream in = getAssets().open("web/app.js");
-                        in.close();
-                    }
-                    binFile = target;
-                }
+        Thread thread = new Thread(new DaemonRunner(this));
+        thread.start();
+    }
 
+    private static class DaemonRunner implements Runnable {
+        private final MainActivity activity;
+
+        DaemonRunner(MainActivity activity) {
+            this.activity = activity;
+        }
+
+        @Override
+        public void run() {
+            try {
+                File binFile = new File(activity.getApplicationInfo().nativeLibraryDir, "libshadowstar.so");
                 if (binFile.exists()) {
                     binFile.setExecutable(true);
-                    File cfgFile = new File(getFilesDir(), "config.json");
+                    File cfgFile = new File(activity.getFilesDir(), "config.json");
                     if (!cfgFile.exists()) {
-                        copyAssetToFile("web/shadowstar-client.json", cfgFile);
+                        activity.copyAssetToFile("config.json", cfgFile);
                     }
                     ProcessBuilder pb = new ProcessBuilder(binFile.getAbsolutePath(), "-c", cfgFile.getAbsolutePath());
-                    pb.directory(getFilesDir());
-                    daemonProcess = pb.start();
+                    pb.directory(activity.getFilesDir());
+                    activity.daemonProcess = pb.start();
                 }
             } catch (Exception ignored) {
             }
-        }).start();
+        }
     }
 
-    private void copyAssetToFile(String assetName, File dest) {
-        try (InputStream in = getAssets().open(assetName);
-             OutputStream out = new FileOutputStream(dest)) {
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                out.write(buf, 0, n);
+    public void copyAssetToFile(String assetName, File dest) {
+        String[] candidates = new String[]{assetName, "web/" + assetName, "web\\" + assetName};
+        for (String candidate : candidates) {
+            try (InputStream in = getAssets().open(candidate);
+                 OutputStream out = new FileOutputStream(dest)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                }
+                return;
+            } catch (Exception ignored) {
             }
-        } catch (Exception ignored) {
         }
     }
 
@@ -105,8 +141,14 @@ public class MainActivity extends Activity {
                 vpnIntent.setAction("START");
                 startService(vpnIntent);
                 Toast.makeText(this, "✓ ShadowStar VPN запущен", Toast.LENGTH_SHORT).show();
+                if (webView != null) {
+                    webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(true);", null);
+                }
             } else {
                 Toast.makeText(this, "Требуется разрешение для VPN-туннеля", Toast.LENGTH_SHORT).show();
+                if (webView != null) {
+                    webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(false);", null);
+                }
             }
         }
     }
@@ -128,6 +170,21 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static class SafeWebViewClient extends WebViewClient {
+        private final MainActivity activity;
+
+        SafeWebViewClient(MainActivity activity) {
+            this.activity = activity;
+        }
+
+        @Override
+        public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+            if (activity != null) {
+                activity.loadEmbeddedHtml();
+            }
+        }
+    }
+
     public static class AndroidBridge {
         private final MainActivity activity;
 
@@ -137,46 +194,77 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void startVpn() {
-            activity.runOnUiThread(() -> {
-                Intent prepare = VpnService.prepare(activity);
-                if (prepare != null) {
-                    activity.startActivityForResult(prepare, VPN_REQUEST_CODE);
-                } else {
-                    Intent vpnIntent = new Intent(activity, ShadowStarVpnService.class);
-                    vpnIntent.setAction("START");
-                    activity.startService(vpnIntent);
-                }
-            });
+            activity.runOnUiThread(new StartVpnRunnable(activity));
         }
 
         @JavascriptInterface
         public void stopVpn() {
-            activity.runOnUiThread(() -> {
-                Intent vpnIntent = new Intent(activity, ShadowStarVpnService.class);
-                vpnIntent.setAction("STOP");
-                activity.startService(vpnIntent);
-            });
+            activity.runOnUiThread(new StopVpnRunnable(activity));
+        }
+
+        @JavascriptInterface
+        public String getInitialConfig() {
+            return activity.loadAsset("config.json");
         }
 
         @JavascriptInterface
         public void copyToClipboard(String text) {
-            activity.runOnUiThread(() -> {
-                ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
-                if (cm != null) {
-                    cm.setPrimaryClip(ClipData.newPlainText("shadowstar", text));
-                    Toast.makeText(activity, "✓ Скопировано в буфер!", Toast.LENGTH_SHORT).show();
-                }
-            });
+            ClipboardManager cm = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(ClipData.newPlainText("shadowstar", text));
+                Toast.makeText(activity, "✓ Скопировано в буфер!", Toast.LENGTH_SHORT).show();
+            }
         }
 
         @JavascriptInterface
         public void showToast(String msg) {
-            activity.runOnUiThread(() -> Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show());
+            Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show();
         }
 
         @JavascriptInterface
         public String getPlatform() {
             return "android";
+        }
+    }
+
+    private static class StartVpnRunnable implements Runnable {
+        private final MainActivity activity;
+
+        StartVpnRunnable(MainActivity activity) {
+            this.activity = activity;
+        }
+
+        @Override
+        public void run() {
+            Intent prepare = VpnService.prepare(activity);
+            if (prepare != null) {
+                activity.startActivityForResult(prepare, VPN_REQUEST_CODE);
+            } else {
+                Intent vpnIntent = new Intent(activity, ShadowStarVpnService.class);
+                vpnIntent.setAction("START");
+                activity.startService(vpnIntent);
+                if (activity.webView != null) {
+                    activity.webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(true);", null);
+                }
+            }
+        }
+    }
+
+    private static class StopVpnRunnable implements Runnable {
+        private final MainActivity activity;
+
+        StopVpnRunnable(MainActivity activity) {
+            this.activity = activity;
+        }
+
+        @Override
+        public void run() {
+            Intent vpnIntent = new Intent(activity, ShadowStarVpnService.class);
+            vpnIntent.setAction("STOP");
+            activity.startService(vpnIntent);
+            if (activity.webView != null) {
+                activity.webView.evaluateJavascript("if(window.onVpnStatusChanged) window.onVpnStatusChanged(false);", null);
+            }
         }
     }
 }

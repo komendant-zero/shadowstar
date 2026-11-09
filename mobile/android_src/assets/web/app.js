@@ -132,7 +132,36 @@ function loadStoredServers() {
     } catch (e) {
       state.servers = [];
     }
-  } else {
+  }
+
+  // Check if we have embedded configuration to inject
+  let embeddedCfg = null;
+  if (window.EMBEDDED_CONFIG) {
+    embeddedCfg = window.EMBEDDED_CONFIG;
+  } else if (window.AndroidBridge && window.AndroidBridge.getInitialConfig) {
+    try {
+      embeddedCfg = JSON.parse(window.AndroidBridge.getInitialConfig());
+    } catch (e) {}
+  }
+
+  const cfgList = embeddedCfg ? (embeddedCfg.servers || embeddedCfg.nodes || []) : [];
+  const onlyHasDemo = !state.servers || state.servers.length === 0 || state.servers.every(s => s.id === 'node-nl-demo' || s.id === 'shadowstar-demo-node');
+
+  if (cfgList.length > 0 && onlyHasDemo) {
+    state.servers = cfgList.map((n, idx) => ({
+      id: n.id || ('node-' + idx),
+      name: n.name || 'ShadowStar Node',
+      addr: n.server_addr || n.addr,
+      key: n.master_key || n.key,
+      sni: n.sni || 'www.microsoft.com',
+      country: n.country || 'NL',
+      ping: n.ping || 25
+    }));
+    if (embeddedCfg.active_id) {
+      state.activeServerId = embeddedCfg.active_id;
+    }
+    saveStoredServers();
+  } else if (!state.servers || state.servers.length === 0) {
     // Default demo node
     state.servers = [
       {
@@ -183,11 +212,34 @@ function switchTab(tab) {
 // --- Connection Control ---
 async function toggleConnect() {
   if (state.servers.length === 0) {
-    showToast('⚠️ Нет узлов для подключения! Добавьте узел.');
+    showToast(state.currentLang === 'ru' ? '⚠️ Нет узлов для подключения! Добавьте узел.' : '⚠️ No nodes to connect! Add a node.');
     return;
   }
 
   const active = state.servers.find(s => s.id === state.activeServerId) || state.servers[0];
+
+  // If running inside Android Native App with AndroidBridge
+  if (window.AndroidBridge) {
+    if (state.connected) {
+      try { window.AndroidBridge.stopVpn(); } catch(e) {}
+      state.connected = false;
+      state.connecting = false;
+      renderPowerButton();
+      showToast(state.currentLang === 'ru' ? 'Туннель отключён' : 'Tunnel disconnected');
+    } else {
+      state.connecting = true;
+      renderPowerButton();
+      showToast((state.currentLang === 'ru' ? 'Подключение: ' : 'Connecting: ') + active.name);
+      try {
+        window.AndroidBridge.startVpn();
+      } catch(e) {
+        state.connecting = false;
+        renderPowerButton();
+        showToast('Ошибка запуска VPN: ' + e);
+      }
+    }
+    return;
+  }
 
   if (state.connected) {
     state.connected = false;
@@ -238,6 +290,17 @@ async function toggleConnect() {
 
   renderPowerButton();
 }
+
+window.onVpnStatusChanged = function(isActive) {
+  state.connected = isActive;
+  state.connecting = false;
+  renderPowerButton();
+  if (isActive) {
+    showToast(state.currentLang === 'ru' ? '✓ ShadowStar Anti-DPI туннель активен!' : '✓ ShadowStar Anti-DPI tunnel active!');
+  } else {
+    showToast(state.currentLang === 'ru' ? 'Туннель отключён' : 'Tunnel disconnected');
+  }
+};
 
 function renderPowerButton() {
   const btn = document.getElementById('power-btn');

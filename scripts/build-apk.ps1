@@ -54,11 +54,35 @@ function Build-Variant {
 
     $VarWork = "$WorkDir\$VariantName"
     New-Item -ItemType Directory -Path "$VarWork\assets\web", "$VarWork\dex" -Force | Out-Null
-    Copy-Item "$SrcRoot\assets\web\*" "$VarWork\assets\web\" -Recurse -Force
+
+    # Read base assets
+    $RawHtml = Get-Content -Raw "$SrcRoot\assets\web\index.html"
+    $RawCss  = Get-Content -Raw "$SrcRoot\assets\web\style.css"
+    $RawJs   = Get-Content -Raw "$SrcRoot\assets\web\app.js"
+    $CfgJson = "{}"
     if (Test-Path $ConfigPath) {
-        Copy-Item $ConfigPath "$VarWork\assets\web\shadowstar-client.json" -Force
-        Copy-Item $ConfigPath "$VarWork\assets\config.json" -Force
+        $CfgJson = Get-Content -Raw $ConfigPath
     }
+
+    # Bundle all CSS, JS and Config directly into a single self-contained HTML
+    $InjectedHead = "<style>`n$RawCss`n</style>`n<script>`nwindow.EMBEDDED_CONFIG = $CfgJson;`n</script>`n</head>"
+    $BundledHtml = $RawHtml.Replace('<link rel="stylesheet" href="./style.css">', '')
+    $BundledHtml = $BundledHtml.Replace('</head>', $InjectedHead)
+    $BundledHtml = $BundledHtml.Replace('<script src="./app.js"></script>', "<script>`n$RawJs`n</script>")
+
+    # Save flat assets (prevents any Windows backslash in zip entry paths)
+    Set-Content -Path "$VarWork\assets\index.html" -Value $BundledHtml -Encoding utf8
+    Set-Content -Path "$VarWork\assets\style.css" -Value $RawCss -Encoding utf8
+    Set-Content -Path "$VarWork\assets\app.js" -Value $RawJs -Encoding utf8
+    Set-Content -Path "$VarWork\assets\config.json" -Value $CfgJson -Encoding utf8
+    Copy-Item "$SrcRoot\assets\web\manifest.json" "$VarWork\assets\" -Force
+    Copy-Item "$SrcRoot\assets\web\sw.js" "$VarWork\assets\" -Force
+
+    # Also keep web/ subfolder copy
+    Copy-Item "$VarWork\assets\index.html" "$VarWork\assets\web\index.html" -Force
+    Copy-Item "$VarWork\assets\style.css" "$VarWork\assets\web\style.css" -Force
+    Copy-Item "$VarWork\assets\app.js" "$VarWork\assets\web\app.js" -Force
+    Copy-Item "$VarWork\assets\config.json" "$VarWork\assets\web\config.json" -Force
 
     # 2. Link with aapt2
     Write-Host "[2/7] Linking APK with aapt2..." -ForegroundColor Yellow
@@ -68,7 +92,7 @@ function Build-Variant {
     # 3. Compile Java with javac
     Write-Host "[3/7] Compiling Java sources..." -ForegroundColor Yellow
     $JavaFiles = Get-ChildItem -Path "$WorkDir\gen", "$SrcRoot\src" -Filter "*.java" -Recurse | Select-Object -ExpandProperty FullName
-    & $Javac -source 17 -target 17 -cp $AndroidJar -d "$WorkDir\obj" $JavaFiles
+    & $Javac -source 11 -target 11 -g -cp $AndroidJar -d "$WorkDir\obj" $JavaFiles
 
     # 4. Generate Dalvik Dex with d8
     Write-Host "[4/7] Generating classes.dex with d8..." -ForegroundColor Yellow
@@ -105,10 +129,12 @@ function Build-Variant {
 
 # Build Public APK
 Build-Variant -VariantName "public" -ConfigPath "shadowstar-client.json" -OutputFile "d:\ocli\ShadowStar\bin\ShadowStar.apk"
+Copy-Item "d:\ocli\ShadowStar\bin\ShadowStar.apk" "d:\ocli\ShadowStar\ShadowStar.apk" -Force
 
 # Build Personal APK
 if (Test-Path "shadowstar-client.personal.json") {
     Build-Variant -VariantName "personal" -ConfigPath "shadowstar-client.personal.json" -OutputFile "d:\ocli\ShadowStar\bin\ShadowStar-Personal.apk"
+    Copy-Item "d:\ocli\ShadowStar\bin\ShadowStar-Personal.apk" "d:\ocli\ShadowStar\ShadowStar-Personal.apk" -Force
 }
 
 Write-Host "ALL APKS SUCCESSFULLY BUILT" -ForegroundColor Green

@@ -56,6 +56,9 @@ flowchart LR
 
 ### 🖥️ Interactive TUI Client (Windows, Linux, macOS)
 Written in pure Go with zero external dependencies (ANSI VT100 / Raw Console).
+
+![ShadowStar TUI Interface](assets/shadowstar-tui.png)
+
 - **Run**: `shadowstar -c shadowstar-client.json` (or `./run-personal-pc.bat`)
 - **Keybindings**:
   - `[C]` / `[Space]` — Connect / Disconnect tunnel
@@ -110,6 +113,9 @@ The installer configures:
 
 ### 🖥️ Кроссплатформенный интерактивный TUI-клиент (Windows, Linux, macOS)
 Полноценный интерактивный консольный терминал без сторонних зависимостей (чистый Go, ANSI VT100 / Raw Console) с живыми графиками скоростей (sparklines) и логами в реальном времени.
+
+![Интерфейс ShadowStar TUI](assets/shadowstar-tui.png)
+
 - **Запуск**: запустите `shadowstar.exe` (или `run-personal-pc.bat`). На Linux/macOS запускается командой `./shadowstar`.
 - **Горячие клавиши**:
   - `[C]` / `[Пробел]` — Подключение / Отключение туннеля

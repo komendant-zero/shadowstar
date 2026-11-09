@@ -1,6 +1,6 @@
 # ⭐ ShadowStar (SSP) • Next-Gen Anti-DPI Stealth Proxy
 
-[![GitHub Release](https://img.shields.io/badge/release-v1.3.0-blue.svg)](https://github.com/komendant-zero/shadowstar/releases)
+[![GitHub Release](https://img.shields.io/badge/release-v1.4.0-blue.svg)](https://github.com/komendant-zero/shadowstar/releases)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8.svg)](https://golang.org)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-green.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

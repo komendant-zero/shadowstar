@@ -572,43 +572,67 @@ func (t *TUI) submitAddNode() {
 		return
 	}
 
-	// Try decoding as shadowstar:// URI
+	// Try decoding as shadowstar:// URI, base64 payload, host:port:key, or raw key
 	profile, err := config.DecodeURIToProfile(input)
-	if err != nil {
-		// Try parsing as host:port:key format
-		parts := strings.Split(input, ":")
-		if len(parts) >= 3 {
-			p := client.ServerProfile{
-				ID:            fmt.Sprintf("node-%d", time.Now().UnixNano()%10000),
-				Name:          "Node " + parts[0],
-				ServerAddr:    parts[0] + ":" + parts[1],
-				MasterKey:     parts[2],
-				SNI:           "www.microsoft.com",
-				EnableChunker: true,
-				PaddingLen:    64,
-			}
-			if len(parts) >= 4 {
-				p.SNI = parts[3]
-			}
-			profile = &p
-			err = nil
-		}
-	}
-
 	if err != nil || profile == nil {
 		t.modalError = i18n.T("Неверный формат ссылки/ключа", "Invalid link or key format")
 		return
 	}
 
+	// If user entered only a master key, attach to active or default server
+	if profile.ServerAddr == "" {
+		servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
+		if len(servers) > 0 && t.selectedIdx < len(servers) {
+			profile.ServerAddr = servers[t.selectedIdx].ServerAddr
+			profile.Name = servers[t.selectedIdx].Name
+			profile.SNI = servers[t.selectedIdx].SNI
+			profile.EnableChunker = servers[t.selectedIdx].EnableChunker
+		} else if len(t.cfg.Servers) > 0 {
+			profile.ServerAddr = t.cfg.Servers[0].ServerAddr
+			profile.Name = t.cfg.Servers[0].Name
+			profile.SNI = t.cfg.Servers[0].SNI
+			profile.EnableChunker = t.cfg.Servers[0].EnableChunker
+		} else {
+			profile.ServerAddr = "179.253.74.36:4433"
+			profile.Name = "ShadowStar Node"
+			profile.SNI = "www.microsoft.com"
+			profile.EnableChunker = true
+		}
+	}
+
 	profile.GroupID = t.cfg.ActiveGroupID
-	t.cfg.Servers = append(t.cfg.Servers, *profile)
-	t.cfg.ActiveID = profile.ID
-	t.client.UpdateProfile(*profile)
+
+	// If a server with same ServerAddr already exists in the group, update its key instead of duplicating
+	updatedExisting := false
+	for i := range t.cfg.Servers {
+		if t.cfg.Servers[i].ServerAddr == profile.ServerAddr {
+			t.cfg.Servers[i].MasterKey = profile.MasterKey
+			if profile.Name != "" && !strings.HasPrefix(profile.Name, "Node with Key") {
+				t.cfg.Servers[i].Name = profile.Name
+			}
+			t.cfg.ActiveID = t.cfg.Servers[i].ID
+			t.client.UpdateProfile(t.cfg.Servers[i])
+			updatedExisting = true
+			break
+		}
+	}
+
+	if !updatedExisting {
+		t.cfg.Servers = append(t.cfg.Servers, *profile)
+		t.cfg.ActiveID = profile.ID
+		t.client.UpdateProfile(*profile)
+	}
+
 	servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
-	t.selectedIdx = len(servers) - 1
+	for idx, s := range servers {
+		if s.ID == t.cfg.ActiveID {
+			t.selectedIdx = idx
+			break
+		}
+	}
 	_ = config.SaveClientConfig(t.cfgPath, t.cfg)
 
-	t.toast(fmt.Sprintf(i18n.T("✓ Добавлен узел: %s", "✓ Node added: %s"), profile.Name))
+	t.toast(fmt.Sprintf(i18n.T("✓ Узел настроен: %s", "✓ Node configured: %s"), profile.Name))
 	t.modal = ModalNone
 }
 

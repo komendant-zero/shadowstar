@@ -116,3 +116,33 @@ func TestParseSubscriptionMultiLines(t *testing.T) {
 		t.Errorf("profile 2 mismatch: %+v", profiles[2])
 	}
 }
+
+func TestDecodeKeyFormats(t *testing.T) {
+	// 1. Raw 64-character hex key
+	hexKey := "01d7b18d323cbb7a771ec7baffd331cff73f188b620f7d56a3dfc22c6cf535b2"
+	p1, err := DecodeURIToProfile(hexKey)
+	if err != nil {
+		t.Fatalf("Failed to decode raw hex key: %v", err)
+	}
+	if p1.MasterKey != hexKey {
+		t.Errorf("Expected master key %s, got %s", hexKey, p1.MasterKey)
+	}
+
+	// 2. host:port:key
+	p2, err := DecodeURIToProfile("179.253.74.36:4433:" + hexKey)
+	if err != nil {
+		t.Fatalf("Failed to decode host:port:key: %v", err)
+	}
+	if p2.ServerAddr != "179.253.74.36:4433" || p2.MasterKey != hexKey {
+		t.Errorf("Mismatch in p2: %+v", p2)
+	}
+
+	// 3. key@host:port
+	p3, err := DecodeURIToProfile(hexKey + "@179.253.74.36:4433")
+	if err != nil {
+		t.Fatalf("Failed to decode key@host:port: %v", err)
+	}
+	if p3.ServerAddr != "179.253.74.36:4433" || p3.MasterKey != hexKey {
+		t.Errorf("Mismatch in p3: %+v", p3)
+	}
+}

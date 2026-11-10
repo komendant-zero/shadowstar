@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,7 @@ type Config struct {
 type Server struct {
 	config     *Config
 	masterKey  []byte
+	legacyKey  []byte
 	listener   net.Listener
 	mu         sync.Mutex
 	closed     bool
@@ -40,17 +42,12 @@ func NewServer(cfg *Config) (*Server, error) {
 		cfg.FallbackTarget = "www.microsoft.com:443"
 	}
 
-	keyBytes := []byte(cfg.MasterKey)
-	if len(keyBytes) < 32 {
-		// Pad or hash to 32 bytes
-		keyBytes = protocol.HKDFExtract(nil, keyBytes)
-	} else if len(keyBytes) > 32 {
-		keyBytes = keyBytes[:32]
-	}
+	primaryKey, legacyKey := protocol.NormalizeMasterKey(cfg.MasterKey)
 
 	return &Server{
 		config:    cfg,
-		masterKey: keyBytes,
+		masterKey: primaryKey,
+		legacyKey: legacyKey,
 	}, nil
 }
 
@@ -130,8 +127,15 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 		return
 	}
 
-	// Verify authentication tag embedded in TLS SessionID
-	validAuth := protocol.VerifyAuthSessionID(parsed.SessionID, s.masterKey, parsed.ClientPub, parsed.SNI)
+	// Verify authentication tag embedded in TLS SessionID (with legacy key fallback)
+	activeKey := s.masterKey
+	validAuth := protocol.VerifyAuthSessionID(parsed.SessionID, activeKey, parsed.ClientPub, parsed.SNI)
+	if !validAuth && len(s.legacyKey) > 0 {
+		if protocol.VerifyAuthSessionID(parsed.SessionID, s.legacyKey, parsed.ClientPub, parsed.SNI) {
+			validAuth = true
+			activeKey = s.legacyKey
+		}
+	}
 	if !validAuth {
 		if s.config.Verbose {
 			log.Printf("[Probe-Shield] Active probe or unauthenticated TLS from %s (SNI: %s). Redirecting to %s",
@@ -161,7 +165,7 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	}
 
 	// Derive Bidirectional Session Keys
-	clientKey, serverKey, clientIV, serverIV, err := protocol.DeriveSessionKeys(sharedSecret, s.masterKey)
+	clientKey, serverKey, clientIV, serverIV, err := protocol.DeriveSessionKeys(sharedSecret, activeKey)
 	if err != nil {
 		log.Printf("[ShadowStar-Server] DeriveSessionKeys error: %v", err)
 		return
@@ -195,12 +199,37 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	}
 }
 
+func isBlockedTarget(host string) bool {
+	h := strings.TrimSpace(strings.ToLower(host))
+	if h == "" || h == "localhost" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return true
+		}
+		// Block 169.254.169.254 (Cloud instance metadata API)
+		if ip.Equal(net.ParseIP("169.254.169.254")) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) handleMuxStream(stream *protocol.MuxStream) {
 	defer stream.Close()
 
 	// Read destination address
 	target, err := protocol.ReadTargetAddress(stream)
 	if err != nil {
+		return
+	}
+
+	if isBlockedTarget(target.Host) {
+		if s.config.Verbose {
+			log.Printf("[Proxy-Block] Blocked restricted loopback/metadata target: %s", target.Host)
+		}
 		return
 	}
 
@@ -251,6 +280,10 @@ func (s *Server) handleMuxStream(stream *protocol.MuxStream) {
 
 func (s *Server) handleUDPStream(stream *protocol.MuxStream, target *protocol.TargetAddress) {
 	defer stream.Close()
+
+	if isBlockedTarget(target.Host) {
+		return
+	}
 
 	destAddr := target.String()
 	if s.config.Verbose {

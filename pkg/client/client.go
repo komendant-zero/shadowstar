@@ -213,6 +213,7 @@ type Client struct {
 	socksAddr     string
 	httpAddr      string
 	masterKey     []byte
+	legacyKey     []byte
 	socksListener net.Listener
 	httpListener  net.Listener
 	session       *protocol.MuxSession
@@ -256,6 +257,9 @@ func sanitizeProfile(p *ServerProfile) {
 	p.ServerAddr = strings.TrimSpace(p.ServerAddr)
 	p.MasterKey = strings.TrimSpace(p.MasterKey)
 	p.SNI = strings.TrimSpace(p.SNI)
+	if p.ServerAddr != "" && !strings.Contains(p.ServerAddr, ":") {
+		p.ServerAddr = p.ServerAddr + ":4433"
+	}
 	// Strip :port if user included it in SNI
 	if strings.Contains(p.SNI, ":") {
 		h, _, err := net.SplitHostPort(p.SNI)
@@ -284,18 +288,14 @@ func NewClient(profile ServerProfile, socksAddr, httpAddr string) (*Client, erro
 		httpAddr = "127.0.0.1:10809"
 	}
 
-	keyBytes := []byte(profile.MasterKey)
-	if len(keyBytes) < 32 {
-		keyBytes = protocol.HKDFExtract(nil, keyBytes)
-	} else if len(keyBytes) > 32 {
-		keyBytes = keyBytes[:32]
-	}
+	primaryKey, legacyKey := protocol.NormalizeMasterKey(profile.MasterKey)
 
 	c := &Client{
 		profile:   profile,
 		socksAddr: socksAddr,
 		httpAddr:  httpAddr,
-		masterKey: keyBytes,
+		masterKey: primaryKey,
+		legacyKey: legacyKey,
 		logChan:   make(chan string, 100),
 		logs:      make([]string, 0, 100),
 	}
@@ -379,13 +379,9 @@ func (c *Client) UpdateProfile(p ServerProfile) {
 	sanitizeProfile(&p)
 	c.mu.Lock()
 	c.profile = p
-	keyBytes := []byte(p.MasterKey)
-	if len(keyBytes) < 32 {
-		keyBytes = protocol.HKDFExtract(nil, keyBytes)
-	} else if len(keyBytes) > 32 {
-		keyBytes = keyBytes[:32]
-	}
-	c.masterKey = keyBytes
+	primaryKey, legacyKey := protocol.NormalizeMasterKey(p.MasterKey)
+	c.masterKey = primaryKey
+	c.legacyKey = legacyKey
 	c.mu.Unlock()
 
 	c.muSession.Lock()
@@ -413,35 +409,47 @@ func (c *Client) getSession() (*protocol.MuxSession, error) {
 		return nil, fmt.Errorf("failed to connect to server: %w", err)
 	}
 
-	// Perform TLS 1.3 Mimicry Handshake (with auto clock-drift tolerance)
+	// Perform TLS 1.3 Mimicry Handshake (with key fallback & auto clock-drift tolerance)
 	var clientPriv *ecdh.PrivateKey
 	var serverPub []byte
+	var usedKey []byte
 	candidates := []int64{c.profile.TimeOffset, 170, 180, 0, 120, 240, -120}
 	
-	for _, off := range candidates {
+	keyOptions := [][]byte{c.masterKey}
+	if len(c.legacyKey) > 0 {
+		keyOptions = append(keyOptions, c.legacyKey)
+	}
+
+	for kIdx, tryKey := range keyOptions {
 		if clientPriv != nil {
 			break
 		}
-		if off != c.profile.TimeOffset && conn != nil {
-			conn.Close()
-			conn, err = net.DialTimeout("tcp", c.profile.ServerAddr, 8*time.Second)
-			if err != nil {
-				return nil, fmt.Errorf("failed to reconnect: %w", err)
+		for idx, off := range candidates {
+			if clientPriv != nil {
+				break
 			}
-		}
+			if (idx > 0 || kIdx > 0) && conn != nil {
+				conn.Close()
+				conn, err = net.DialTimeout("tcp", c.profile.ServerAddr, 8*time.Second)
+				if err != nil {
+					return nil, fmt.Errorf("failed to reconnect: %w", err)
+				}
+			}
 
-		cp, sp, hErr := protocol.PerformClientHandshake(conn, c.masterKey, c.profile.SNI, c.profile.EnableChunker, c.profile.PaddingLen, off)
-		if hErr == nil && sp != nil {
-			clientPriv = cp
-			serverPub = sp
-			c.profile.TimeOffset = off
-			break
+			cp, sp, hErr := protocol.PerformClientHandshake(conn, tryKey, c.profile.SNI, c.profile.EnableChunker, c.profile.PaddingLen, off)
+			if hErr == nil && sp != nil {
+				clientPriv = cp
+				serverPub = sp
+				usedKey = tryKey
+				c.profile.TimeOffset = off
+				break
+			}
 		}
 	}
 
 	if clientPriv == nil || serverPub == nil {
 		conn.Close()
-		return nil, errors.New("handshake failed with all candidate time offsets")
+		return nil, errors.New("handshake failed with all candidate time offsets and keys")
 	}
 
 	// Compute ECDH shared secret
@@ -451,8 +459,8 @@ func (c *Client) getSession() (*protocol.MuxSession, error) {
 		return nil, fmt.Errorf("ecdh failed: %w", err)
 	}
 
-	// Derive Bidirectional Session Keys
-	clientKey, serverKey, clientIV, serverIV, err := protocol.DeriveSessionKeys(sharedSecret, c.masterKey)
+	// Derive Bidirectional Session Keys using the successfully authenticated key
+	clientKey, serverKey, clientIV, serverIV, err := protocol.DeriveSessionKeys(sharedSecret, usedKey)
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("derive keys failed: %w", err)

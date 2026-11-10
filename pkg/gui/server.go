@@ -107,7 +107,27 @@ func (g *GUIServer) Start() error {
 	}
 	g.listener = l
 
-	g.httpServer = &http.Server{Handler: mux}
+	// Security middleware: Protect against DNS Rebinding and unauthorized CSRF
+	secureHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if colon := strings.Index(host, ":"); colon != -1 {
+			host = host[:colon]
+		}
+		if host != "127.0.0.1" && host != "localhost" {
+			http.Error(w, "Forbidden: Invalid Host header (DNS Rebinding Defense)", http.StatusForbidden)
+			return
+		}
+		if r.Method == http.MethodPost {
+			origin := r.Header.Get("Origin")
+			if origin != "" && !strings.HasPrefix(origin, "http://127.0.0.1") && !strings.HasPrefix(origin, "http://localhost") {
+				http.Error(w, "Forbidden: Cross-Origin Request Blocked", http.StatusForbidden)
+				return
+			}
+		}
+		mux.ServeHTTP(w, r)
+	})
+
+	g.httpServer = &http.Server{Handler: secureHandler}
 	log.Printf("[ShadowStar-GUI] Web UI active on http://127.0.0.1:%d", g.port)
 
 	go func() {
@@ -453,6 +473,17 @@ func (g *GUIServer) handleImportServer(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	if profile.ServerAddr == "" {
+		if len(g.cfg.Servers) > 0 {
+			profile.ServerAddr = g.cfg.Servers[0].ServerAddr
+			profile.Name = g.cfg.Servers[0].Name + " (Key)"
+			profile.SNI = g.cfg.Servers[0].SNI
+		} else {
+			profile.ServerAddr = "179.253.74.36:4433"
+			profile.Name = "Personal VPS Node"
+		}
 	}
 
 	g.mu.Lock()

@@ -107,11 +107,77 @@ func ComputeAuthTag(key, data []byte) []byte {
 
 // VerifyAuthTag verifies an authentication tag in constant time
 func VerifyAuthTag(key, data, expectedTag []byte) bool {
+	if len(expectedTag) < 16 {
+		return false
+	}
 	computed := ComputeAuthTag(key, data)
 	if len(computed) < len(expectedTag) {
 		return false
 	}
 	return hmac.Equal(computed[:len(expectedTag)], expectedTag)
+}
+
+// NormalizeMasterKey normalizes raw master key strings into a secure 32-byte key.
+// It also provides a legacyKey fallback so connections to previously deployed servers
+// (which truncated 64-character hex keys without decoding) continue to work seamlessly.
+func NormalizeMasterKey(rawKey string) (primaryKey []byte, legacyKey []byte) {
+	trimmed := []byte(nil)
+	cleanStr := ""
+	for i := 0; i < len(rawKey); i++ {
+		c := rawKey[i]
+		if c > ' ' && c <= '~' {
+			cleanStr += string(c)
+		}
+	}
+	trimmed = []byte(cleanStr)
+	if len(trimmed) == 0 {
+		return make([]byte, KeySize), nil
+	}
+
+	// Case 1: 64-char Hex String (256-bit key encoded as hex)
+	if len(cleanStr) == 64 {
+		decoded := make([]byte, 32)
+		isHex := true
+		for i := 0; i < 32; i++ {
+			hi := fromHexChar(cleanStr[2*i])
+			lo := fromHexChar(cleanStr[2*i+1])
+			if hi == 255 || lo == 255 {
+				isHex = false
+				break
+			}
+			decoded[i] = (hi << 4) | lo
+		}
+		if isHex {
+			// primaryKey is the true cryptographically decoded 256-bit key
+			// legacyKey is the first 32 ASCII characters (for backward compatibility with old servers)
+			return decoded, trimmed[:32]
+		}
+	}
+
+	// Case 2: Exactly 32 bytes
+	if len(trimmed) == 32 {
+		return trimmed, nil
+	}
+
+	// Case 3: Less than 32 bytes - safely derive 32 bytes via HKDF
+	if len(trimmed) < 32 {
+		return HKDFExtract(nil, trimmed), nil
+	}
+
+	// Case 4: Long string
+	return trimmed[:32], nil
+}
+
+func fromHexChar(c byte) byte {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0'
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10
+	}
+	return 255
 }
 
 // RandomBytes generates n cryptographically secure random bytes

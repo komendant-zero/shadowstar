@@ -34,6 +34,8 @@ func main() {
 	subURL := flag.String("sub", "", "Set subscription URL and update servers")
 	updateSub := flag.Bool("update-sub", false, "Update servers from subscription URL")
 	listServers := flag.Bool("list", false, "List configured servers")
+	keyFlag := flag.String("key", "", "Master key to connect or override active node")
+	serverFlag := flag.String("server", "", "Remote server address (host:port)")
 	flag.Parse()
 
 	if *showVersion {
@@ -172,6 +174,37 @@ func main() {
 		_ = config.SaveClientConfig(absCfg, cfg)
 		fmt.Printf("Successfully imported profile: %s (%s)\n", profile.Name, profile.ServerAddr)
 		return
+	}
+
+	if *keyFlag != "" || *serverFlag != "" {
+		if len(cfg.Servers) == 0 {
+			sAddr := *serverFlag
+			if sAddr == "" {
+				sAddr = "179.253.74.36:4433"
+			}
+			cfg.Servers = append(cfg.Servers, client.ServerProfile{
+				ID:            "cmd-node",
+				Name:          "Direct Node",
+				ServerAddr:    sAddr,
+				MasterKey:     *keyFlag,
+				SNI:           "www.microsoft.com",
+				EnableChunker: true,
+				PaddingLen:    64,
+			})
+			cfg.ActiveID = "cmd-node"
+		} else {
+			for i := range cfg.Servers {
+				if cfg.Servers[i].ID == cfg.ActiveID || len(cfg.Servers) == 1 {
+					if *keyFlag != "" {
+						cfg.Servers[i].MasterKey = *keyFlag
+					}
+					if *serverFlag != "" {
+						cfg.Servers[i].ServerAddr = *serverFlag
+					}
+					break
+				}
+			}
+		}
 	}
 
 	var activeProfile client.ServerProfile

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -62,8 +63,63 @@ func BuildAuthSessionID(masterKey []byte, clientPub []byte, sni string, timeOffs
 	return sessionID, nil
 }
 
+// ReplayDetector prevents replaying previous TLS handshakes
+type ReplayDetector struct {
+	mu      sync.Mutex
+	seen    map[[16]byte]int64 // map[ts(8)+salt(8)]timestamp
+	cleanup time.Time
+}
+
+var defaultReplayDetector = NewReplayDetector()
+
+func NewReplayDetector() *ReplayDetector {
+	return &ReplayDetector{
+		seen: make(map[[16]byte]int64),
+	}
+}
+
+// Reset clears seen history (useful for tests)
+func (r *ReplayDetector) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seen = make(map[[16]byte]int64)
+}
+
+// CheckAndAdd checks if (ts, salt) was previously observed within AuthWindow
+func (r *ReplayDetector) CheckAndAdd(sessionID []byte) bool {
+	if len(sessionID) != 32 {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now().Unix()
+	if time.Since(r.cleanup) > 2*time.Minute {
+		cutoff := now - AuthWindow
+		for k, ts := range r.seen {
+			if ts < cutoff {
+				delete(r.seen, k)
+			}
+		}
+		r.cleanup = time.Now()
+	}
+
+	var key [16]byte
+	copy(key[:], sessionID[0:16])
+	if _, exists := r.seen[key]; exists {
+		return false // Replay attack detected
+	}
+	r.seen[key] = now
+	return true
+}
+
 // VerifyAuthSessionID validates the SessionID against masterKey, clientPub, and SNI
 func VerifyAuthSessionID(sessionID, masterKey, clientPub []byte, sni string) bool {
+	return VerifyAuthSessionIDInternal(sessionID, masterKey, clientPub, sni, true)
+}
+
+// VerifyAuthSessionIDInternal allows toggling replay check for tests
+func VerifyAuthSessionIDInternal(sessionID, masterKey, clientPub []byte, sni string, checkReplay bool) bool {
 	if len(sessionID) != 32 {
 		return false
 	}
@@ -83,8 +139,14 @@ func VerifyAuthSessionID(sessionID, masterKey, clientPub []byte, sni string) boo
 	copy(data[16:16+len(clientPub)], clientPub)
 	copy(data[16+len(clientPub):], []byte(sni))
 
-	expectedTag := ComputeAuthTag(masterKey, data)
-	return VerifyAuthTag(masterKey, data, providedTag) && len(expectedTag) >= 16
+	if !VerifyAuthTag(masterKey, data, providedTag) {
+		return false
+	}
+
+	if checkReplay {
+		return defaultReplayDetector.CheckAndAdd(sessionID)
+	}
+	return true
 }
 
 // BuildClientHello constructs a fully standard-compliant TLS 1.3 ClientHello packet

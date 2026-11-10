@@ -626,44 +626,53 @@ function saveQuickNode() {
   let sni = 'www.microsoft.com';
   let nodeName = rawName;
 
-  if (rawKey.startsWith('shadowstar://')) {
-    try {
-      const u = new URL(rawKey);
-      masterKey = decodeURIComponent(u.username || '');
-      nodeAddr = u.host || '';
-      if (u.searchParams.get('sni')) sni = u.searchParams.get('sni');
-      if (!nodeName && u.searchParams.get('name')) nodeName = decodeURIComponent(u.searchParams.get('name'));
-    } catch (e) {
-      const after = rawKey.substring('shadowstar://'.length);
-      const atIdx = after.indexOf('@');
-      if (atIdx !== -1) {
-        masterKey = after.substring(0, atIdx);
-        const rest = after.substring(atIdx + 1);
-        const qIdx = rest.indexOf('?');
-        nodeAddr = qIdx !== -1 ? rest.substring(0, qIdx) : rest;
-      }
-    }
-  } else if (rawKey.includes('@')) {
-    const parts = rawKey.split('@');
+  let body = rawKey;
+  if (body.toLowerCase().startsWith('shadowstar://')) {
+    body = body.substring('shadowstar://'.length);
+  }
+
+  const hashIdx = body.indexOf('#');
+  if (hashIdx !== -1) {
+    if (!nodeName) nodeName = decodeURIComponent(body.substring(hashIdx + 1));
+    body = body.substring(0, hashIdx);
+  }
+
+  // 1. Try Base64 JSON
+  try {
+    let b64 = body.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    let decoded = atob(b64);
+    let obj = JSON.parse(decoded);
+    if (obj.server_addr || obj.addr) nodeAddr = obj.server_addr || obj.addr;
+    if (obj.master_key || obj.key) masterKey = obj.master_key || obj.key;
+    if (obj.sni) sni = obj.sni;
+    if (obj.name && !nodeName) nodeName = obj.name;
+  } catch (e) {
+    // not base64 JSON
+  }
+
+  // 2. Try key@host:port
+  if (!masterKey && rawKey.includes('@')) {
+    let clean = rawKey.replace('shadowstar://', '');
+    let parts = clean.split('@');
     masterKey = parts[0].trim();
-    nodeAddr = parts[1].trim();
-  } else if (rawKey.includes(':')) {
-    const parts = rawKey.split(':');
+    let hostPort = parts[1].trim();
+    let qIdx = hostPort.indexOf('?');
+    if (qIdx !== -1) hostPort = hostPort.substring(0, qIdx);
+    nodeAddr = hostPort;
+  } else if (!masterKey && body.includes(':')) {
+    let parts = body.split(':');
     if (parts.length >= 3) {
       nodeAddr = parts[0].trim() + ':' + parts[1].trim();
       masterKey = parts[2].trim();
-    } else if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {
-      nodeAddr = rawKey;
-      masterKey = '01d7b18d323cbb7a771ec7baffd331cff73f188b620f7d56a3dfc22c6cf535b2';
-    } else {
-      masterKey = rawKey;
+      if (parts.length >= 4) sni = parts[3].trim();
     }
-  } else {
-    masterKey = rawKey;
+  } else if (!masterKey) {
+    masterKey = body;
   }
 
   if (!nodeAddr) {
-    let defaultAddr = 'demo-node.shadowstar.org:4433';
+    let defaultAddr = '179.253.74.36:4433';
     if (window.EMBEDDED_CONFIG && window.EMBEDDED_CONFIG.servers && window.EMBEDDED_CONFIG.servers.length > 0) {
       defaultAddr = window.EMBEDDED_CONFIG.servers[0].server_addr || window.EMBEDDED_CONFIG.servers[0].addr || defaultAddr;
     } else {
@@ -916,29 +925,34 @@ function parseSubscriptionText(raw) {
     let sni = 'www.microsoft.com';
     let nodeName = '';
 
-    if (line.startsWith('shadowstar://')) {
-      try {
-        const u = new URL(line);
-        masterKey = decodeURIComponent(u.username || '');
-        nodeAddr = u.host || '';
-        if (u.searchParams.get('sni')) sni = u.searchParams.get('sni');
-        if (u.searchParams.get('name')) nodeName = decodeURIComponent(u.searchParams.get('name'));
-      } catch (e) {
-        const after = line.substring('shadowstar://'.length);
-        const atIdx = after.indexOf('@');
-        if (atIdx !== -1) {
-          masterKey = after.substring(0, atIdx);
-          const rest = after.substring(atIdx + 1);
-          const qIdx = rest.indexOf('?');
-          nodeAddr = qIdx !== -1 ? rest.substring(0, qIdx) : rest;
-        }
-      }
-    } else if (line.includes('@')) {
-      const parts = line.split('@');
+    let body = line;
+    if (body.toLowerCase().startsWith('shadowstar://')) {
+      body = body.substring('shadowstar://'.length);
+    }
+    const hashIdx = body.indexOf('#');
+    if (hashIdx !== -1) {
+      nodeName = decodeURIComponent(body.substring(hashIdx + 1));
+      body = body.substring(0, hashIdx);
+    }
+
+    // Try base64 JSON
+    try {
+      let b64 = body.replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      let decoded = atob(b64);
+      let obj = JSON.parse(decoded);
+      if (obj.server_addr || obj.addr) nodeAddr = obj.server_addr || obj.addr;
+      if (obj.master_key || obj.key) masterKey = obj.master_key || obj.key;
+      if (obj.sni) sni = obj.sni;
+      if (obj.name && !nodeName) nodeName = obj.name;
+    } catch (e) {}
+
+    if (!masterKey && line.includes('@')) {
+      const parts = line.replace('shadowstar://', '').split('@');
       masterKey = parts[0].trim();
       nodeAddr = parts[1].trim();
-    } else if (line.includes(':')) {
-      const parts = line.split(':');
+    } else if (!masterKey && body.includes(':')) {
+      const parts = body.split(':');
       if (parts.length >= 3) {
         nodeAddr = parts[0].trim() + ':' + parts[1].trim();
         masterKey = parts[2].trim();

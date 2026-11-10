@@ -18,9 +18,10 @@ import (
 )
 
 var (
+	apiHost     = flag.String("host", "127.0.0.1", "Host interface for local HTTP REST API")
 	apiPort     = flag.Int("api", 10810, "Local HTTP REST API port for Mobile UI control")
 	subURL      = flag.String("sub", "", "Subscription URL to load nodes on startup")
-	connectNode = flag.String("connect", "", "Direct shadowstar:// link or node address to connect immediately")
+	connectNode = flag.String("connect", "", "Direct shadowstar:// link, host:port:key or key to connect immediately")
 	socksAddr   = flag.String("socks", "127.0.0.1:10808", "Local SOCKS5 proxy listen address")
 	httpAddr    = flag.String("http", "127.0.0.1:10809", "Local HTTP proxy listen address")
 	cfgPath     = flag.String("c", "shadowstar-mobile.json", "Mobile configuration storage file")
@@ -38,22 +39,23 @@ func main() {
 	log.Printf("[ShadowStar-Mobile] Core daemon starting on port %d...", *apiPort)
 	log.Printf("[ShadowStar-Mobile] SOCKS5: %s | HTTP: %s", *socksAddr, *httpAddr)
 
-	// If direct connect URI passed on command line
+	// If direct connect URI or key passed on command line
 	if *connectNode != "" {
-		uri := *connectNode
-		if !strings.HasPrefix(uri, "shadowstar://") {
-			uri = "shadowstar://" + uri
-		}
-		profJSON, err := mobile.ParseShadowStarURI(uri)
+		prof, err := config.DecodeURIToProfile(*connectNode)
 		if err == nil {
-			_, startErr := mobile.StartVPN(profJSON)
+			if prof.ServerAddr == "" {
+				prof.ServerAddr = "179.253.74.36:4433"
+				prof.Name = "Direct Key Node"
+			}
+			rawJSON, _ := json.Marshal(prof)
+			_, startErr := mobile.StartVPN(string(rawJSON))
 			if startErr != nil {
 				log.Printf("[ShadowStar-Mobile] Auto-connect error: %v", startErr)
 			} else {
-				log.Printf("[ShadowStar-Mobile] Auto-connected to URI node")
+				log.Printf("[ShadowStar-Mobile] Auto-connected to node: %s (%s)", prof.Name, prof.ServerAddr)
 			}
 		} else {
-			log.Printf("[ShadowStar-Mobile] Failed to parse connect URI: %v", err)
+			log.Printf("[ShadowStar-Mobile] Failed to parse connect argument: %v", err)
 		}
 	} else if *cfgPath != "" {
 		// Auto-load config.json and connect to active node
@@ -109,7 +111,7 @@ func main() {
 	var listener net.Listener
 	var err error
 	for trial := 0; trial < 5; trial++ {
-		listener, err = net.Listen("tcp", fmt.Sprintf(":%d", *apiPort))
+		listener, err = net.Listen("tcp", fmt.Sprintf("%s:%d", *apiHost, *apiPort))
 		if err == nil {
 			break
 		}
@@ -127,7 +129,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("[ShadowStar-Mobile] Ready! Open: http://localhost:%d", *apiPort)
+	log.Printf("[ShadowStar-Mobile] Ready! Listening on http://%s:%d", *apiHost, *apiPort)
 
 	// Graceful shutdown on SIGINT/SIGTERM
 	sigChan := make(chan os.Signal, 1)
@@ -139,11 +141,16 @@ func main() {
 	_ = server.Close()
 }
 
-func jsonResponse(w http.ResponseWriter, success bool, msg string, data any) {
+func jsonResponse(w http.ResponseWriter, r *http.Request, success bool, msg string, data any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	origin := r.Header.Get("Origin")
+	if origin == "" || strings.HasPrefix(origin, "http://127.0.0.1") || strings.HasPrefix(origin, "http://localhost") || strings.HasPrefix(origin, "https://localhost") {
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	}
 	_ = json.NewEncoder(w).Encode(APIResponse{
 		Success: success,
 		Message: msg,
@@ -157,7 +164,7 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	var stats mobile.MobileStats
 	_ = json.Unmarshal([]byte(mobile.GetStatsJSON()), &stats)
-	jsonResponse(w, true, "", stats)
+	jsonResponse(w, r, true, "", stats)
 }
 
 func handleConnect(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +172,7 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		jsonResponse(w, false, "Method not allowed", nil)
+		jsonResponse(w, r, false, "Method not allowed", nil)
 		return
 	}
 
@@ -174,27 +181,32 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 		URI         string `json:"uri"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonResponse(w, false, "Invalid JSON payload", nil)
+		jsonResponse(w, r, false, "Invalid JSON payload", nil)
 		return
 	}
 
 	profJSON := req.ProfileJSON
 	if profJSON == "" && req.URI != "" {
-		p, err := mobile.ParseShadowStarURI(req.URI)
+		prof, err := config.DecodeURIToProfile(req.URI)
 		if err != nil {
-			jsonResponse(w, false, "Invalid shadowstar:// URI: "+err.Error(), nil)
+			jsonResponse(w, r, false, "Invalid link/key: "+err.Error(), nil)
 			return
 		}
-		profJSON = p
+		if prof.ServerAddr == "" {
+			prof.ServerAddr = "179.253.74.36:4433"
+			prof.Name = "Direct Key Node"
+		}
+		raw, _ := json.Marshal(prof)
+		profJSON = string(raw)
 	}
 
 	res, err := mobile.StartVPN(profJSON)
 	if err != nil {
-		jsonResponse(w, false, "Connection failed: "+err.Error(), nil)
+		jsonResponse(w, r, false, "Connection failed: "+err.Error(), nil)
 		return
 	}
 
-	jsonResponse(w, true, res, nil)
+	jsonResponse(w, r, true, res, nil)
 }
 
 func handleDisconnect(w http.ResponseWriter, r *http.Request) {
@@ -203,10 +215,10 @@ func handleDisconnect(w http.ResponseWriter, r *http.Request) {
 	}
 	err := mobile.StopVPN()
 	if err != nil {
-		jsonResponse(w, false, err.Error(), nil)
+		jsonResponse(w, r, false, err.Error(), nil)
 		return
 	}
-	jsonResponse(w, true, "Disconnected", nil)
+	jsonResponse(w, r, true, "Disconnected", nil)
 }
 
 func handleSubscription(w http.ResponseWriter, r *http.Request) {
@@ -215,19 +227,19 @@ func handleSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	subURL := r.URL.Query().Get("url")
 	if subURL == "" {
-		jsonResponse(w, false, "Missing 'url' query parameter", nil)
+		jsonResponse(w, r, false, "Missing 'url' query parameter", nil)
 		return
 	}
 
 	nodesJSON, err := mobile.FetchSubscription(subURL)
 	if err != nil {
-		jsonResponse(w, false, "Failed to fetch subscription: "+err.Error(), nil)
+		jsonResponse(w, r, false, "Failed to fetch subscription: "+err.Error(), nil)
 		return
 	}
 
 	var nodes []any
 	_ = json.Unmarshal([]byte(nodesJSON), &nodes)
-	jsonResponse(w, true, "", nodes)
+	jsonResponse(w, r, true, "", nodes)
 }
 
 func handleParseURI(w http.ResponseWriter, r *http.Request) {
@@ -236,19 +248,17 @@ func handleParseURI(w http.ResponseWriter, r *http.Request) {
 	}
 	uri := r.URL.Query().Get("uri")
 	if uri == "" {
-		jsonResponse(w, false, "Missing 'uri' parameter", nil)
+		jsonResponse(w, r, false, "Missing 'uri' parameter", nil)
 		return
 	}
 
-	profJSON, err := mobile.ParseShadowStarURI(uri)
+	prof, err := config.DecodeURIToProfile(uri)
 	if err != nil {
-		jsonResponse(w, false, err.Error(), nil)
+		jsonResponse(w, r, false, err.Error(), nil)
 		return
 	}
 
-	var prof any
-	_ = json.Unmarshal([]byte(profJSON), &prof)
-	jsonResponse(w, true, "", prof)
+	jsonResponse(w, r, true, "", prof)
 }
 
 func handlePing(w http.ResponseWriter, r *http.Request) {
@@ -257,12 +267,12 @@ func handlePing(w http.ResponseWriter, r *http.Request) {
 	}
 	addr := r.URL.Query().Get("addr")
 	if addr == "" {
-		jsonResponse(w, false, "Missing 'addr' parameter", nil)
+		jsonResponse(w, r, false, "Missing 'addr' parameter", nil)
 		return
 	}
 
 	ms := mobile.PingServer(addr, 3)
-	jsonResponse(w, true, "", map[string]any{"addr": addr, "ping": ms})
+	jsonResponse(w, r, true, "", map[string]any{"addr": addr, "ping": ms})
 }
 
 func handleAutoBest(w http.ResponseWriter, r *http.Request) {
@@ -273,11 +283,11 @@ func handleAutoBest(w http.ResponseWriter, r *http.Request) {
 		Servers []client.ServerProfile `json:"servers"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonResponse(w, false, "Invalid JSON", nil)
+		jsonResponse(w, r, false, "Invalid JSON", nil)
 		return
 	}
 
 	rawJSON, _ := json.Marshal(req.Servers)
 	bestIdx := mobile.FindFastestServer(string(rawJSON))
-	jsonResponse(w, true, "", map[string]int{"best_index": bestIdx})
+	jsonResponse(w, r, true, "", map[string]int{"best_index": bestIdx})
 }

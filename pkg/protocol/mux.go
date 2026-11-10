@@ -223,15 +223,9 @@ func (s *MuxSession) readLoop() {
 					case stream.readBuf <- payload:
 					case <-stream.closeChan:
 					default:
-						// Read buffer saturated, delegate without blocking multiplexer readLoop
-						go func(st *MuxStream, p []byte) {
-							select {
-							case st.readBuf <- p:
-							case <-st.closeChan:
-							case <-time.After(3 * time.Second):
-								st.Close()
-							}
-						}(stream, payload)
+						// Buffer saturated (512 frames, up to 16MB unconsumed data).
+						// Close the stalled stream safely without unbounded goroutine spawning to prevent OOM DoS.
+						stream.Close()
 					}
 				}
 			}

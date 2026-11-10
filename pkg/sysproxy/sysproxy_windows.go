@@ -23,8 +23,25 @@ func notifyWinINet() {
 	procInternetSetOption.Call(0, uintptr(INTERNET_OPTION_REFRESH), 0, 0)
 }
 
+func isValidProxyAddress(addr string) bool {
+	if len(addr) == 0 || len(addr) > 255 {
+		return false
+	}
+	for i := 0; i < len(addr); i++ {
+		c := addr[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == ':' || c == '-' || c == '[' || c == ']') {
+			return false
+		}
+	}
+	return true
+}
+
 // SetSystemProxy configures the Windows internet proxy
 func SetSystemProxy(proxyServer string) error {
+	if !isValidProxyAddress(proxyServer) {
+		return fmt.Errorf("invalid or malicious proxy address format: %q", proxyServer)
+	}
+
 	cmd := exec.Command("reg", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`, "/v", "ProxyEnable", "/t", "REG_DWORD", "/d", "1", "/f")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if err := cmd.Run(); err != nil {

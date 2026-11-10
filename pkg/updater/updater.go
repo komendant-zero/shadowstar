@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -299,16 +300,21 @@ func CleanupOldFiles() {
 	}
 }
 
-// OpenURL opens the specified URL in the system's default web browser
-func OpenURL(url string) error {
+// OpenURL opens the specified URL in the system's default web browser securely
+func OpenURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return fmt.Errorf("insecure or invalid URL scheme: %s", rawURL)
+	}
+
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", rawURL)
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", rawURL)
 	default:
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", rawURL)
 	}
 	return cmd.Start()
 }

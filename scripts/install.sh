@@ -135,6 +135,10 @@ net.ipv4.tcp_wmem = 4096 65536 33554432
 EOF
 sysctl --system > /dev/null 2>&1 || true
 
+# Create dedicated unprivileged user for security
+id -u shadowstar &>/dev/null || useradd -r -s /bin/false shadowstar
+chown -R shadowstar:shadowstar "$CONFIG_DIR"
+
 # Create Systemd Service
 echo -e "${CYAN}[*] Creating systemd service (shadowstar.service)...${NC}"
 cat > /etc/systemd/system/shadowstar.service << EOF
@@ -144,7 +148,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=shadowstar
+Group=shadowstar
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
 LimitNOFILE=1048576
 ExecStart=$INSTALL_DIR/shadowstar-server -c $CONFIG_FILE
 Restart=always

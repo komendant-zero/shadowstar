@@ -148,15 +148,63 @@ class MainActivity : ComponentActivity() {
 
     private fun importFromUri(uri: String) {
         try {
-            // Simplified parsing of shadowstar://
-            val raw = uri.removePrefix("shadowstar://")
-            val parts = raw.split("@", "#")
-            if (parts.size >= 2) {
-                val key = parts[0]
-                val hostPart = parts[1]
-                val name = if (parts.size > 2) parts[2] else hostPart
-                val item = ServerItem("node-${System.currentTimeMillis()}", name, hostPart, key, "www.microsoft.com", 45)
-                addServer(item)
+            var raw = uri.trim()
+            if (raw.startsWith("shadowstar://", ignoreCase = true)) {
+                raw = raw.substring("shadowstar://".length)
+            }
+            var nodeName = ""
+            val hashIdx = raw.indexOf("#")
+            if (hashIdx != -1) {
+                nodeName = try { java.net.URLDecoder.decode(raw.substring(hashIdx + 1), "UTF-8") } catch (e: Exception) { raw.substring(hashIdx + 1) }
+                raw = raw.substring(0, hashIdx)
+            }
+
+            var parsed = false
+            // 1. Try base64 JSON
+            try {
+                val cleanB64 = raw.replace("-", "+").replace("_", "/")
+                val bytes = android.util.Base64.decode(cleanB64, android.util.Base64.DEFAULT)
+                val jsonStr = String(bytes, Charsets.UTF_8)
+                val obj = JSONObject(jsonStr)
+                val addr = obj.optString("server_addr", obj.optString("addr", ""))
+                val key = obj.optString("master_key", obj.optString("key", ""))
+                val sni = obj.optString("sni", "www.microsoft.com")
+                val name = if (nodeName.isNotEmpty()) nodeName else obj.optString("name", "ShadowStar Node")
+                if (addr.isNotEmpty() && key.isNotEmpty()) {
+                    val item = ServerItem("node-${System.currentTimeMillis()}", name, addr, key, sni, 45)
+                    addServer(item)
+                    parsed = true
+                }
+            } catch (e: Exception) {
+                // not base64 json
+            }
+
+            // 2. Try key@host:port or host:port:key
+            if (!parsed) {
+                val parts = raw.split("@", "#")
+                if (parts.size >= 2) {
+                    val key = parts[0].trim()
+                    val hostPart = parts[1].trim()
+                    val name = if (nodeName.isNotEmpty()) nodeName else hostPart
+                    val item = ServerItem("node-${System.currentTimeMillis()}", name, hostPart, key, "www.microsoft.com", 45)
+                    addServer(item)
+                    parsed = true
+                } else if (raw.contains(":")) {
+                    val colParts = raw.split(":")
+                    if (colParts.size >= 3) {
+                        val hostPart = "${colParts[0].trim()}:${colParts[1].trim()}"
+                        val key = colParts[2].trim()
+                        val sni = if (colParts.size >= 4) colParts[3].trim() else "www.microsoft.com"
+                        val name = if (nodeName.isNotEmpty()) nodeName else hostPart
+                        val item = ServerItem("node-${System.currentTimeMillis()}", name, hostPart, key, sni, 45)
+                        addServer(item)
+                        parsed = true
+                    }
+                }
+            }
+
+            if (!parsed) {
+                Toast.makeText(this, "Не удалось распознать формат узла", Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             Toast.makeText(this, "Ошибка импорта ссылки: ${e.message}", Toast.LENGTH_SHORT).show()

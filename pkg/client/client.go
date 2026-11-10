@@ -492,6 +492,43 @@ func (c *Client) acceptSocksLoop() {
 	}
 }
 
+func (c *Client) openStreamWithRetry(destAddr string) (*protocol.MuxStream, error) {
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		sess, err := c.getSession()
+		if err != nil {
+			lastErr = err
+			time.Sleep(150 * time.Millisecond)
+			continue
+		}
+
+		stream, err := sess.OpenStream()
+		if err != nil {
+			c.muSession.Lock()
+			if c.session == sess {
+				c.session = nil
+			}
+			c.muSession.Unlock()
+			lastErr = err
+			continue
+		}
+
+		if err := protocol.WriteTargetAddress(stream, protocol.NetTCP, destAddr); err != nil {
+			stream.Close()
+			c.muSession.Lock()
+			if c.session == sess {
+				c.session = nil
+			}
+			c.muSession.Unlock()
+			lastErr = err
+			continue
+		}
+
+		return stream, nil
+	}
+	return nil, lastErr
+}
+
 func (c *Client) handleSocksClient(conn net.Conn) {
 	defer conn.Close()
 	c.activeConns.Add(1)
@@ -580,29 +617,14 @@ func (c *Client) handleSocksClient(conn net.Conn) {
 		return
 	}
 
-	// Open multiplexed stream
-	sess, err := c.getSession()
+	// Open multiplexed stream with retry
+	stream, err := c.openStreamWithRetry(destAddr)
 	if err != nil {
-		c.Log(fmt.Sprintf("[Error] Tunnel unavailable: %v", err))
-		_, _ = conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-		return
-	}
-
-	stream, err := sess.OpenStream()
-	if err != nil {
-		c.muSession.Lock()
-		c.session = nil
-		c.muSession.Unlock()
+		c.Log(fmt.Sprintf("[Error] Tunnel unavailable for %s: %v", destAddr, err))
 		_, _ = conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
 	defer stream.Close()
-
-	// Write Shadowsocks Target Address into stream
-	if err := protocol.WriteTargetAddress(stream, protocol.NetTCP, destAddr); err != nil {
-		_, _ = conn.Write([]byte{0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-		return
-	}
 
 	// Tell SOCKS5 client: Success!
 	if _, err := conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
@@ -922,64 +944,78 @@ func (c *Client) handleHttpClient(conn net.Conn) {
 			_, _ = conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 			return
 		}
+		defer localTarget.Close()
+
 		if req.Method == http.MethodConnect {
 			_, _ = conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 			c.pipeBidirectional(clientRWC, localTarget)
-		} else {
+			return
+		}
+
+		isUpgrade := strings.EqualFold(req.Header.Get("Upgrade"), "websocket") ||
+			strings.Contains(strings.ToLower(req.Header.Get("Connection")), "upgrade")
+
+		if !isUpgrade {
 			req.Close = true
 			req.Header.Set("Connection", "close")
-			var reqBuf bytes.Buffer
-			if err := req.Write(&reqBuf); err == nil {
-				c.bytesUp.Add(uint64(reqBuf.Len()))
-				_, _ = localTarget.Write(reqBuf.Bytes())
-			}
-			c.pipeBidirectional(clientRWC, localTarget)
 		}
+
+		var reqBuf bytes.Buffer
+		if err := req.Write(&reqBuf); err == nil {
+			c.bytesUp.Add(uint64(reqBuf.Len()))
+			_, _ = localTarget.Write(reqBuf.Bytes())
+		}
+		c.pipeBidirectional(clientRWC, localTarget)
 		return
 	}
 
-	sess, err := c.getSession()
+	if req.Method == http.MethodConnect {
+		stream, err := c.openStreamWithRetry(destAddr)
+		if err != nil {
+			c.Log(fmt.Sprintf("[Error] Tunnel unavailable for %s: %v", destAddr, err))
+			_, _ = conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+			return
+		}
+		defer stream.Close()
+
+		_, err = conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+		if err != nil {
+			return
+		}
+		c.pipeBidirectional(clientRWC, stream)
+		return
+	}
+
+	// Plain HTTP to remote target
+	stream, err := c.openStreamWithRetry(destAddr)
 	if err != nil {
 		c.Log(fmt.Sprintf("[Error] Tunnel unavailable for %s: %v", destAddr, err))
 		_, _ = conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 		return
 	}
+	defer stream.Close()
 
-	stream, err := sess.OpenStream()
-	if err != nil {
-		c.muSession.Lock()
-		c.session = nil
-		c.muSession.Unlock()
-		_, _ = conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+	req.Header.Del("Proxy-Connection")
+	req.Header.Del("Proxy-Authenticate")
+	req.Header.Del("Proxy-Authorization")
+
+	isUpgrade := strings.EqualFold(req.Header.Get("Upgrade"), "websocket") ||
+		strings.Contains(strings.ToLower(req.Header.Get("Connection")), "upgrade")
+
+	if !isUpgrade {
+		req.Close = true
+		req.Header.Set("Connection", "close")
+	}
+
+	var reqBuf bytes.Buffer
+	if err := req.Write(&reqBuf); err != nil {
 		return
 	}
-
-	if err := protocol.WriteTargetAddress(stream, protocol.NetTCP, destAddr); err != nil {
-		stream.Close()
-		_, _ = conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+	c.bytesUp.Add(uint64(reqBuf.Len()))
+	if _, err := stream.Write(reqBuf.Bytes()); err != nil {
 		return
 	}
-
-	if req.Method == http.MethodConnect {
-		_, err = conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
-		if err != nil {
-			stream.Close()
-			return
-		}
-		c.pipeBidirectional(clientRWC, stream)
-	} else {
-		var reqBuf bytes.Buffer
-		if err := req.Write(&reqBuf); err != nil {
-			stream.Close()
-			return
-		}
-		c.bytesUp.Add(uint64(reqBuf.Len()))
-		if _, err := stream.Write(reqBuf.Bytes()); err != nil {
-			stream.Close()
-			return
-		}
-		c.pipeBidirectional(clientRWC, stream)
-	}
+	c.pipeBidirectional(clientRWC, stream)
 }
 
 func (c *Client) pipeBidirectional(local io.ReadWriteCloser, remote io.ReadWriteCloser) {
@@ -995,17 +1031,24 @@ func (c *Client) pipeBidirectional(local io.ReadWriteCloser, remote io.ReadWrite
 	// Local -> Remote (Upload)
 	go func() {
 		defer wg.Done()
-		defer once.Do(closeBoth)
 		buf := make([]byte, 32768)
 		for {
 			n, err := local.Read(buf)
 			if n > 0 {
 				c.bytesUp.Add(uint64(n))
 				if _, wErr := remote.Write(buf[:n]); wErr != nil {
+					once.Do(closeBoth)
 					break
 				}
 			}
 			if err != nil {
+				// Client finished sending data (EOF / half-close)
+				if tcp, ok := remote.(*net.TCPConn); ok {
+					_ = tcp.CloseWrite()
+				}
+				if err != io.EOF {
+					once.Do(closeBoth)
+				}
 				break
 			}
 		}
@@ -1025,6 +1068,7 @@ func (c *Client) pipeBidirectional(local io.ReadWriteCloser, remote io.ReadWrite
 				}
 			}
 			if err != nil {
+				// Server finished sending response
 				break
 			}
 		}

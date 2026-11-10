@@ -42,6 +42,21 @@ func (s *MuxStream) Read(b []byte) (n int, err error) {
 		timeoutChan = timer.C
 	}
 
+	// 1. Drain readBuf first if data is immediately available
+	select {
+	case chunk, ok := <-s.readBuf:
+		if !ok || chunk == nil {
+			return 0, io.EOF
+		}
+		n = copy(b, chunk)
+		if n < len(chunk) {
+			s.readRem = chunk[n:]
+		}
+		return n, nil
+	default:
+	}
+
+	// 2. Wait for incoming data, closure, or timeout
 	select {
 	case chunk, ok := <-s.readBuf:
 		if !ok || chunk == nil {
@@ -53,19 +68,21 @@ func (s *MuxStream) Read(b []byte) (n int, err error) {
 		}
 		return n, nil
 	case <-s.closeChan:
-		// Drain any remaining buffered chunks
-		select {
-		case chunk, ok := <-s.readBuf:
-			if ok && len(chunk) > 0 {
-				n = copy(b, chunk)
-				if n < len(chunk) {
-					s.readRem = chunk[n:]
+		// Drain any remaining buffered chunks completely before returning EOF
+		for {
+			select {
+			case chunk, ok := <-s.readBuf:
+				if ok && len(chunk) > 0 {
+					n = copy(b, chunk)
+					if n < len(chunk) {
+						s.readRem = chunk[n:]
+					}
+					return n, nil
 				}
-				return n, nil
+			default:
+				return 0, io.EOF
 			}
-		default:
 		}
-		return 0, io.EOF
 	case <-timeoutChan:
 		return 0, os.ErrDeadlineExceeded
 	}
@@ -222,9 +239,9 @@ func (s *MuxSession) readLoop() {
 					select {
 					case stream.readBuf <- payload:
 					case <-stream.closeChan:
-					default:
-						// Buffer saturated (512 frames, up to 16MB unconsumed data).
-						// Close the stalled stream safely without unbounded goroutine spawning to prevent OOM DoS.
+					case <-time.After(3 * time.Second):
+						// Buffer saturated (>16MB unconsumed data for >3s).
+						// Close the stalled stream safely to prevent OOM DoS.
 						stream.Close()
 					}
 				}

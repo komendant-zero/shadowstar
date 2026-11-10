@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	version = "1.4.0-stealth"
+	version = "1.4.1-stealth"
 )
 
 func main() {

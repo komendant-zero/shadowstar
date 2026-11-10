@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	CurrentVersion = "v1.3.0"
+	CurrentVersion = "v1.4.1"
 	DefaultRepo    = "komendant-zero/shadowstar"
 )
 

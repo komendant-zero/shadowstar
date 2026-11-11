@@ -535,14 +535,6 @@ function disconnectVPN() {
     showToast(t('statusOff'));
   });
 }
-  .catch(() => ({}))
-  .finally(() => {
-    state.connected = false;
-    state.connectStartTime = null;
-    updateUI();
-    showToast(t('statusOff'));
-  });
-}
 
 // --- Server Selection & Actions ---
 function selectServer(id) {

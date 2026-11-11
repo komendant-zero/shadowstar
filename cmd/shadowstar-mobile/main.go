@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/shadowstar/shadowstar/pkg/client"
 	"github.com/shadowstar/shadowstar/pkg/config"
@@ -27,6 +28,10 @@ var (
 	socksAddr   = flag.String("socks", "127.0.0.1:10808", "Local SOCKS5 proxy listen address")
 	httpAddr    = flag.String("http", "127.0.0.1:10809", "Local HTTP proxy listen address")
 	cfgPath     = flag.String("c", "shadowstar-mobile.json", "Mobile configuration storage file")
+
+	mobileCfgMu   sync.Mutex
+	mobileCfg     *client.Config
+	activeCfgPath string
 )
 
 type APIResponse struct {
@@ -41,6 +46,47 @@ func main() {
 
 	log.Printf("[ShadowStar-Mobile] Core daemon starting on port %d...", *apiPort)
 	log.Printf("[ShadowStar-Mobile] SOCKS5: %s | HTTP: %s", *socksAddr, *httpAddr)
+
+	// Resolve persistent mobile config
+	activeCfgPath = *cfgPath
+	if *cfgPath == "shadowstar-mobile.json" {
+		candidates := []string{
+			"shadowstar-mobile.json",
+			config.GetPersistentMobileConfigPath(),
+			config.GetPersistentConfigPath(),
+		}
+		for _, cand := range candidates {
+			if fi, err := os.Stat(cand); err == nil && !fi.IsDir() {
+				activeCfgPath = cand
+				break
+			}
+		}
+		if activeCfgPath == "shadowstar-mobile.json" {
+			activeCfgPath = config.GetPersistentMobileConfigPath()
+		}
+	}
+
+	var cfgErr error
+	mobileCfg, cfgErr = config.LoadClientConfig(activeCfgPath)
+	if cfgErr != nil || mobileCfg == nil {
+		mobileCfg = &client.Config{
+			SocksAddr: *socksAddr,
+			HttpAddr:  *httpAddr,
+			Servers:   []client.ServerProfile{},
+		}
+	}
+	// If mobile has no real servers, automatically restore from desktop persistent config
+	if !config.HasRealServers(mobileCfg) {
+		if deskCfg, dErr := config.LoadClientConfig(config.GetPersistentConfigPath()); dErr == nil && config.HasRealServers(deskCfg) {
+			mobileCfg.Servers = deskCfg.Servers
+			mobileCfg.ActiveID = deskCfg.ActiveID
+			mobileCfg.Groups = deskCfg.Groups
+			mobileCfg.ActiveGroupID = deskCfg.ActiveGroupID
+			mobileCfg.SubscriptionURL = deskCfg.SubscriptionURL
+			_ = config.SaveClientConfig(activeCfgPath, mobileCfg)
+			log.Printf("[ShadowStar-Mobile] Restored %d servers from persistent desktop storage", len(mobileCfg.Servers))
+		}
+	}
 
 	// If direct connect URI or key passed on command line
 	if *connectNode != "" {
@@ -60,27 +106,25 @@ func main() {
 		} else {
 			log.Printf("[ShadowStar-Mobile] Failed to parse connect argument: %v", err)
 		}
-	} else if *cfgPath != "" {
-		// Auto-load config.json and connect to active node
-		if cfg, err := config.LoadClientConfig(*cfgPath); err == nil && cfg != nil && len(cfg.Servers) > 0 {
-			var activeProf *client.ServerProfile
-			for i := range cfg.Servers {
-				if cfg.Servers[i].ID == cfg.ActiveID {
-					activeProf = &cfg.Servers[i]
-					break
-				}
+	} else if mobileCfg != nil && len(mobileCfg.Servers) > 0 {
+		// Auto-load and connect to active node
+		var activeProf *client.ServerProfile
+		for i := range mobileCfg.Servers {
+			if mobileCfg.Servers[i].ID == mobileCfg.ActiveID {
+				activeProf = &mobileCfg.Servers[i]
+				break
 			}
-			if activeProf == nil {
-				activeProf = &cfg.Servers[0]
-			}
-			if activeProf.ServerAddr != "" && activeProf.MasterKey != "" {
-				rawJSON, _ := json.Marshal(activeProf)
-				_, startErr := mobile.StartVPN(string(rawJSON))
-				if startErr != nil {
-					log.Printf("[ShadowStar-Mobile] Config auto-connect error: %v", startErr)
-				} else {
-					log.Printf("[ShadowStar-Mobile] Auto-connected to active server from config: %s (%s)", activeProf.Name, activeProf.ServerAddr)
-				}
+		}
+		if activeProf == nil {
+			activeProf = &mobileCfg.Servers[0]
+		}
+		if activeProf.ServerAddr != "" && activeProf.MasterKey != "" {
+			rawJSON, _ := json.Marshal(activeProf)
+			_, startErr := mobile.StartVPN(string(rawJSON))
+			if startErr != nil {
+				log.Printf("[ShadowStar-Mobile] Config auto-connect error: %v", startErr)
+			} else {
+				log.Printf("[ShadowStar-Mobile] Auto-connected to active server: %s (%s)", activeProf.Name, activeProf.ServerAddr)
 			}
 		}
 	}
@@ -95,6 +139,7 @@ func main() {
 	http.HandleFunc("/api/auto-best", handleAutoBest)
 	http.HandleFunc("/api/check-update", handleCheckUpdate)
 	http.HandleFunc("/api/apply-update", handleApplyUpdate)
+	http.HandleFunc("/api/servers", handleServers)
 
 	// Serve mobile web interface: check disk paths first (dev mode), fallback to embedded WebFS
 	var webHandler http.Handler
@@ -211,6 +256,37 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Persist connected node to configuration
+	var connectedProf client.ServerProfile
+	if json.Unmarshal([]byte(profJSON), &connectedProf) == nil && connectedProf.ServerAddr != "" {
+		mobileCfgMu.Lock()
+		if mobileCfg != nil {
+			exists := false
+			for i := range mobileCfg.Servers {
+				if mobileCfg.Servers[i].ServerAddr == connectedProf.ServerAddr {
+					if connectedProf.MasterKey != "" {
+						mobileCfg.Servers[i].MasterKey = connectedProf.MasterKey
+					}
+					if connectedProf.Name != "" && !strings.HasPrefix(connectedProf.Name, "Direct Key") {
+						mobileCfg.Servers[i].Name = connectedProf.Name
+					}
+					mobileCfg.ActiveID = mobileCfg.Servers[i].ID
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				if connectedProf.ID == "" {
+					connectedProf.ID = fmt.Sprintf("node-%d", time.Now().UnixNano()%100000)
+				}
+				mobileCfg.Servers = append([]client.ServerProfile{connectedProf}, mobileCfg.Servers...)
+				mobileCfg.ActiveID = connectedProf.ID
+			}
+			_ = config.SaveClientConfig(activeCfgPath, mobileCfg)
+		}
+		mobileCfgMu.Unlock()
+	}
+
 	jsonResponse(w, r, true, res, nil)
 }
 
@@ -242,9 +318,69 @@ func handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var nodes []any
+	var nodes []client.ServerProfile
 	_ = json.Unmarshal([]byte(nodesJSON), &nodes)
+
+	if len(nodes) > 0 {
+		mobileCfgMu.Lock()
+		if mobileCfg != nil {
+			mobileCfg.SubscriptionURL = subURL
+			mobileCfg.Servers = nodes
+			if mobileCfg.ActiveID == "" {
+				mobileCfg.ActiveID = nodes[0].ID
+			}
+			_ = config.SaveClientConfig(activeCfgPath, mobileCfg)
+		}
+		mobileCfgMu.Unlock()
+	}
+
 	jsonResponse(w, r, true, "", nodes)
+}
+
+func handleServers(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		return
+	}
+	mobileCfgMu.Lock()
+	defer mobileCfgMu.Unlock()
+
+	if r.Method == http.MethodGet {
+		jsonResponse(w, r, true, "", map[string]any{
+			"servers":          mobileCfg.Servers,
+			"active_id":        mobileCfg.ActiveID,
+			"subscription_url": mobileCfg.SubscriptionURL,
+		})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var req struct {
+			Servers         []client.ServerProfile `json:"servers"`
+			ActiveID        string                 `json:"active_id"`
+			SubscriptionURL string                 `json:"subscription_url"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonResponse(w, r, false, "Invalid JSON payload", nil)
+			return
+		}
+		if len(req.Servers) > 0 {
+			mobileCfg.Servers = req.Servers
+		}
+		if req.ActiveID != "" {
+			mobileCfg.ActiveID = req.ActiveID
+		}
+		if req.SubscriptionURL != "" {
+			mobileCfg.SubscriptionURL = req.SubscriptionURL
+		}
+		_ = config.SaveClientConfig(activeCfgPath, mobileCfg)
+		jsonResponse(w, r, true, "Servers saved successfully", map[string]any{
+			"servers":   mobileCfg.Servers,
+			"active_id": mobileCfg.ActiveID,
+		})
+		return
+	}
+
+	jsonResponse(w, r, false, "Method not allowed", nil)
 }
 
 func handleParseURI(w http.ResponseWriter, r *http.Request) {

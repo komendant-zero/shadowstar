@@ -163,15 +163,32 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function loadStoredServers() {
-  const raw = localStorage.getItem('shadowstar_mobile_servers');
-  if (raw) {
+  // 1. First check Android persistent storage (survives app reinstallation)
+  if (window.AndroidBridge && window.AndroidBridge.loadServersJson) {
     try {
-      state.servers = JSON.parse(raw);
-    } catch (e) {
-      state.servers = [];
+      const bridgeRaw = window.AndroidBridge.loadServersJson();
+      if (bridgeRaw && bridgeRaw.length > 5) {
+        const parsed = JSON.parse(bridgeRaw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          state.servers = parsed;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 2. Check localStorage
+  if (!state.servers || state.servers.length === 0) {
+    const raw = localStorage.getItem('shadowstar_mobile_servers');
+    if (raw) {
+      try {
+        state.servers = JSON.parse(raw);
+      } catch (e) {
+        state.servers = [];
+      }
     }
   }
 
+  // 3. Check embedded config
   let embeddedCfg = null;
   if (window.EMBEDDED_CONFIG) {
     embeddedCfg = window.EMBEDDED_CONFIG;
@@ -193,7 +210,6 @@ function loadStoredServers() {
       ping: n.ping || 35
     }));
     state.activeServerId = embeddedCfg.active_id || (state.servers[0] ? state.servers[0].id : null);
-    saveStoredServers();
   }
 
   // Fallback default VPS node if list is empty
@@ -210,7 +226,6 @@ function loadStoredServers() {
       }
     ];
     state.activeServerId = 'node-main-vps';
-    saveStoredServers();
   }
 
   const savedActive = localStorage.getItem('shadowstar_active_id');
@@ -219,12 +234,63 @@ function loadStoredServers() {
   } else if (!state.activeServerId && state.servers.length > 0) {
     state.activeServerId = state.servers[0].id;
   }
+
+  // 4. Query backend /api/servers for persistent OS storage sync
+  fetch(`${API_BASE}/servers`)
+  .then(res => res.json())
+  .then(data => {
+    if (data.success && data.data && Array.isArray(data.data.servers) && data.data.servers.length > 0) {
+      const remoteList = data.data.servers.map((s, idx) => ({
+        id: s.id || ('node-' + idx),
+        name: s.name || 'ShadowStar Node',
+        addr: s.server_addr || s.addr,
+        key: s.master_key || s.key,
+        sni: s.sni || 'www.microsoft.com',
+        country: getCountryFlag(s.server_addr || s.addr, s.name),
+        ping: s.ping || 35
+      }));
+      state.servers = remoteList;
+      if (data.data.active_id) state.activeServerId = data.data.active_id;
+      if (data.data.subscription_url) state.subscriptionUrl = data.data.subscription_url;
+      saveStoredServers(false);
+      updateUI();
+    }
+  })
+  .catch(() => {});
 }
 
-function saveStoredServers() {
+function saveStoredServers(syncRemote = true) {
   localStorage.setItem('shadowstar_mobile_servers', JSON.stringify(state.servers));
   if (state.activeServerId) {
     localStorage.setItem('shadowstar_active_id', state.activeServerId);
+  }
+
+  // Save to Android persistent storage (survives reinstallation)
+  if (window.AndroidBridge && window.AndroidBridge.saveServersJson) {
+    try {
+      window.AndroidBridge.saveServersJson(JSON.stringify(state.servers));
+    } catch (e) {}
+  }
+
+  // Sync to daemon backend persistent OS storage
+  if (syncRemote) {
+    const payload = {
+      servers: state.servers.map(s => ({
+        id: s.id,
+        name: s.name,
+        server_addr: s.addr,
+        master_key: s.key,
+        sni: s.sni || 'www.microsoft.com',
+        enable_chunker: true
+      })),
+      active_id: state.activeServerId,
+      subscription_url: state.subscriptionUrl
+    };
+    fetch(`${API_BASE}/servers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
   }
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -165,43 +166,125 @@ func DecodeURIToProfile(rawURI string) (*client.ServerProfile, error) {
 	return nil, errors.New("invalid shadowstar link or key format")
 }
 
-// LoadClientConfig reads client config from a JSON file
+// GetPersistentConfigPath returns the OS-standard persistent configuration file path.
+// This path resides in user profile directories and survives application reinstalls,
+// binary updates, or deleting the local application directory.
+func GetPersistentConfigPath() string {
+	if custom := os.Getenv("SHADOWSTAR_CONFIG_DIR"); custom != "" {
+		return filepath.Join(custom, "shadowstar-client.json")
+	}
+	if runtime.GOOS == "windows" {
+		appData := os.Getenv("APPDATA")
+		if appData == "" {
+			if home, err := os.UserHomeDir(); err == nil {
+				appData = filepath.Join(home, "AppData", "Roaming")
+			}
+		}
+		if appData != "" {
+			return filepath.Join(appData, "ShadowStar", "shadowstar-client.json")
+		}
+	} else if runtime.GOOS == "darwin" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, "Library", "Application Support", "ShadowStar", "shadowstar-client.json")
+		}
+	} else {
+		// Linux / Android / other Unix
+		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+			return filepath.Join(xdg, "shadowstar", "shadowstar-client.json")
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, ".config", "shadowstar", "shadowstar-client.json")
+		}
+	}
+	return "shadowstar-client.json"
+}
+
+// GetPersistentMobileConfigPath returns the persistent storage path for shadowstar-mobile.
+func GetPersistentMobileConfigPath() string {
+	p := GetPersistentConfigPath()
+	dir := filepath.Dir(p)
+	return filepath.Join(dir, "shadowstar-mobile.json")
+}
+
+// HasRealServers checks if the config contains at least one configured real server profile
+func HasRealServers(cfg *client.Config) bool {
+	if cfg == nil || len(cfg.Servers) == 0 {
+		return false
+	}
+	for _, s := range cfg.Servers {
+		addr := strings.TrimSpace(s.ServerAddr)
+		if addr != "" && addr != "127.0.0.1:8443" && addr != "your-server-ip.com:4433" {
+			return true
+		}
+	}
+	return false
+}
+
+// LoadClientConfig reads client config from a JSON file, automatically restoring
+// saved servers from OS persistent storage (%APPDATA% / ~/.config) if the local
+// target file is missing, empty, or unconfigured (e.g. after reinstallation or updates).
 func LoadClientConfig(path string) (*client.Config, error) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// Default config
-		def := &client.Config{
+	persistentPath := GetPersistentConfigPath()
+	var loadedCfg *client.Config
+
+	// 1. Check if the specified path exists
+	if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
+		var cfg client.Config
+		if json.Unmarshal(data, &cfg) == nil {
+			loadedCfg = &cfg
+		}
+	}
+
+	// 2. If path didn't have real servers, check persistent OS storage
+	if !HasRealServers(loadedCfg) && persistentPath != "" {
+		if pData, err := os.ReadFile(persistentPath); err == nil && len(pData) > 0 {
+			var pCfg client.Config
+			if json.Unmarshal(pData, &pCfg) == nil && HasRealServers(&pCfg) {
+				if loadedCfg == nil {
+					loadedCfg = &pCfg
+				} else {
+					// Restore all servers & groups from persistent storage!
+					loadedCfg.Servers = pCfg.Servers
+					loadedCfg.Groups = pCfg.Groups
+					loadedCfg.ActiveID = pCfg.ActiveID
+					loadedCfg.ActiveGroupID = pCfg.ActiveGroupID
+					if pCfg.SubscriptionURL != "" {
+						loadedCfg.SubscriptionURL = pCfg.SubscriptionURL
+					}
+				}
+				// Save restored config back to path so local file is populated
+				_ = SaveClientConfig(path, loadedCfg)
+			}
+		}
+	}
+
+	// 3. Fallback to default if still nothing
+	if loadedCfg == nil {
+		loadedCfg = &client.Config{
 			SocksAddr: "127.0.0.1:10808",
 			HttpAddr:  "127.0.0.1:10809",
-			ActiveID:  "default-server",
+			ActiveID:  "node-nl-vps",
 			Servers: []client.ServerProfile{
 				{
-					ID:            "default-server",
-					Name:          "Default Node",
-					ServerAddr:    "127.0.0.1:8443",
-					MasterKey:     "ShadowStarSuperSecretKey2026!Master",
+					ID:            "node-nl-vps",
+					Name:          "ShadowStar VPS (Netherlands)",
+					ServerAddr:    "179.253.74.36:4433",
+					MasterKey:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 					SNI:           "www.microsoft.com",
 					EnableChunker: true,
 					PaddingLen:    64,
 				},
 			},
 		}
-		_ = SaveClientConfig(path, def)
-		return def, nil
+		_ = SaveClientConfig(path, loadedCfg)
 	}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var cfg client.Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	cfg.EnsureGroups()
-	return &cfg, nil
+	loadedCfg.EnsureGroups()
+	return loadedCfg, nil
 }
 
-// SaveClientConfig writes client config to a JSON file
+// SaveClientConfig writes client config to a JSON file and always synchronizes
+// a mirror copy to OS persistent storage to survive reinstalls.
 func SaveClientConfig(path string, cfg *client.Config) error {
 	dir := filepath.Dir(path)
 	if dir != "" && dir != "." {
@@ -211,5 +294,15 @@ func SaveClientConfig(path string, cfg *client.Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	err = os.WriteFile(path, data, 0644)
+
+	// Always mirror to persistent storage location if HasRealServers
+	persistentPath := GetPersistentConfigPath()
+	if persistentPath != "" && filepath.Clean(path) != filepath.Clean(persistentPath) && HasRealServers(cfg) {
+		pDir := filepath.Dir(persistentPath)
+		_ = os.MkdirAll(pDir, 0755)
+		_ = os.WriteFile(persistentPath, data, 0644)
+	}
+
+	return err
 }

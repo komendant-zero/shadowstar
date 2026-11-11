@@ -79,8 +79,101 @@ public class MainActivity extends Activity {
         }
     }
 
+    public static File getPersistentServersFile() {
+        try {
+            File docDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS);
+            File starDir = new File(docDir, "ShadowStar");
+            if (!starDir.exists()) {
+                starDir.mkdirs();
+            }
+            return new File(starDir, "servers.json");
+        } catch (Throwable t) {
+            try {
+                File extDir = android.os.Environment.getExternalStorageDirectory();
+                File starDir = new File(extDir, "Documents/ShadowStar");
+                if (!starDir.exists()) {
+                    starDir.mkdirs();
+                }
+                return new File(starDir, "servers.json");
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+    }
+
+    public void savePersistentServers(String json) {
+        if (json == null || json.trim().isEmpty()) return;
+        // 1. SharedPreferences (auto-backed up by Android Auto Backup)
+        try {
+            getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
+                    .edit()
+                    .putString("servers", json)
+                    .apply();
+        } catch (Throwable ignored) {}
+
+        // 2. Persistent file on external Documents (survives complete APK uninstall/reinstall)
+        try {
+            File file = getPersistentServersFile();
+            if (file != null) {
+                try (FileOutputStream fos = new FileOutputStream(file)) {
+                    fos.write(json.getBytes("UTF-8"));
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    public String loadPersistentServers() {
+        // 1. First check SharedPreferences
+        try {
+            String prefs = getSharedPreferences("shadowstar_prefs", MODE_PRIVATE).getString("servers", null);
+            if (prefs != null && prefs.trim().length() > 5) {
+                return prefs;
+            }
+        } catch (Throwable ignored) {}
+
+        // 2. Check external Documents file (restores after reinstallation!)
+        try {
+            File file = getPersistentServersFile();
+            if (file != null && file.exists() && file.length() > 5) {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(new java.io.FileInputStream(file), "UTF-8"))) {
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        sb.append(line);
+                    }
+                    String restored = sb.toString();
+                    if (restored.trim().length() > 5) {
+                        // Reseed SharedPreferences
+                        getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
+                                .edit()
+                                .putString("servers", restored)
+                                .apply();
+                        return restored;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        return "";
+    }
+
     private void initDefaultProfileFromAsset() {
         try {
+            // First attempt: check persistent storage (survives app reinstallation)
+            String persistentServers = loadPersistentServers();
+            if (persistentServers != null && !persistentServers.isEmpty()) {
+                org.json.JSONArray arr = new org.json.JSONArray(persistentServers);
+                if (arr.length() > 0) {
+                    org.json.JSONObject first = arr.getJSONObject(0);
+                    lastProfileName = first.optString("name", "ShadowStar Node");
+                    lastProfileAddr = first.optString("addr", first.optString("server_addr", "demo-node.shadowstar.org:4433"));
+                    lastProfileKey = first.optString("key", first.optString("master_key", "shadowstar-demo-key-v1"));
+                    lastProfileSni = first.optString("sni", "www.microsoft.com");
+                    return;
+                }
+            }
+
+            // Fallback attempt: check embedded config.json
             String cfg = loadAsset("config.json");
             if (cfg != null && !cfg.isEmpty()) {
                 org.json.JSONObject obj = new org.json.JSONObject(cfg);
@@ -416,6 +509,22 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String getPlatform() {
             return "android";
+        }
+
+        @JavascriptInterface
+        public void saveServersJson(String json) {
+            activity.savePersistentServers(json);
+        }
+
+        @JavascriptInterface
+        public String loadServersJson() {
+            return activity.loadPersistentServers();
+        }
+
+        @JavascriptInterface
+        public boolean hasSavedServers() {
+            String s = activity.loadPersistentServers();
+            return s != null && s.trim().length() > 5;
         }
     }
 }

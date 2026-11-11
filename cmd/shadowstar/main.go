@@ -81,7 +81,7 @@ func main() {
 		exeDir = filepath.Dir(exe)
 	}
 
-	// Smart config resolution: prioritize user's personal config if present
+	// Smart config resolution: prioritize persistent storage & personal config
 	absCfg := *configPath
 	if *configPath == "shadowstar-client.json" {
 		candidates := []string{
@@ -89,16 +89,22 @@ func main() {
 			"shadowstar-client.personal.json",
 			filepath.Join(exeDir, "shadowstar-client.json"),
 			"shadowstar-client.json",
-			filepath.Join(os.Getenv("APPDATA"), "ShadowStar", "shadowstar-client.json"),
+			config.GetPersistentConfigPath(),
 		}
 		for _, cand := range candidates {
 			if cand == "" {
 				continue
 			}
 			if fi, err := os.Stat(cand); err == nil && !fi.IsDir() {
-				absCfg = cand
-				break
+				if testCfg, tErr := config.LoadClientConfig(cand); tErr == nil && config.HasRealServers(testCfg) {
+					absCfg = cand
+					break
+				}
 			}
+		}
+		// Default to OS persistent storage so servers survive reinstallation/folder move
+		if absCfg == "shadowstar-client.json" {
+			absCfg = config.GetPersistentConfigPath()
 		}
 	} else if !filepath.IsAbs(absCfg) {
 		if _, err := os.Stat(absCfg); os.IsNotExist(err) && exeDir != "" {

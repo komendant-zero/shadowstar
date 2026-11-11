@@ -271,6 +271,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun getPersistentFile(): java.io.File? {
+        return try {
+            val docDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS)
+            val starDir = java.io.File(docDir, "ShadowStar")
+            if (!starDir.exists()) starDir.mkdirs()
+            java.io.File(starDir, "servers.json")
+        } catch (t: Throwable) {
+            try {
+                val extDir = android.os.Environment.getExternalStorageDirectory()
+                val starDir = java.io.File(extDir, "Documents/ShadowStar")
+                if (!starDir.exists()) starDir.mkdirs()
+                java.io.File(starDir, "servers.json")
+            } catch (ignored: Throwable) {
+                null
+            }
+        }
+    }
+
     private fun saveServers() {
         val prefs = getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
         val arr = JSONArray()
@@ -283,13 +301,37 @@ class MainActivity : ComponentActivity() {
                 put("sni", s.sni)
             })
         }
-        prefs.edit().putString("servers", arr.toString()).putInt("active_idx", activeServerIndex).apply()
+        val jsonStr = arr.toString()
+        prefs.edit().putString("servers", jsonStr).putInt("active_idx", activeServerIndex).apply()
+
+        // Persistent external Documents backup (survives app reinstallation)
+        try {
+            val file = getPersistentFile()
+            if (file != null) {
+                file.writeText(jsonStr, Charsets.UTF_8)
+            }
+        } catch (ignored: Exception) {}
     }
 
     private fun loadServers() {
         val prefs = getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
-        val raw = prefs.getString("servers", null)
-        if (raw != null) {
+        var raw = prefs.getString("servers", null)
+
+        // If SharedPreferences has no servers (fresh install / reinstall), restore from external persistent Documents file!
+        if (raw.isNullOrBlank()) {
+            try {
+                val file = getPersistentFile()
+                if (file != null && file.exists() && file.length() > 5) {
+                    val restored = file.readText(Charsets.UTF_8)
+                    if (restored.isNotBlank()) {
+                        raw = restored
+                        prefs.edit().putString("servers", restored).apply()
+                    }
+                }
+            } catch (ignored: Exception) {}
+        }
+
+        if (!raw.isNullOrBlank()) {
             val arr = JSONArray(raw)
             val list = mutableListOf<ServerItem>()
             for (i in 0 until arr.length()) {
@@ -306,9 +348,9 @@ class MainActivity : ComponentActivity() {
             serversList = list
             activeServerIndex = prefs.getInt("active_idx", 0).coerceIn(0, (list.size - 1).coerceAtLeast(0))
         } else {
-            // Default demo node
+            // Default VPS node
             serversList = listOf(
-                ServerItem("node-demo-nl", "Demo Node (NL)", "demo-node.shadowstar.org:4433", "shadowstar-demo-key-v1", "www.microsoft.com", 35)
+                ServerItem("node-vps-nl", "ShadowStar VPS (Netherlands)", "179.253.74.36:4433", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "www.microsoft.com", 38)
             )
         }
     }

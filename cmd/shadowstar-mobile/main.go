@@ -10,11 +10,13 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/shadowstar/shadowstar/pkg/client"
 	"github.com/shadowstar/shadowstar/pkg/config"
 	"github.com/shadowstar/shadowstar/pkg/mobile"
+	"github.com/shadowstar/shadowstar/pkg/updater"
 )
 
 var (
@@ -34,6 +36,7 @@ type APIResponse struct {
 }
 
 func main() {
+	updater.CleanupOldFiles()
 	flag.Parse()
 
 	log.Printf("[ShadowStar-Mobile] Core daemon starting on port %d...", *apiPort)
@@ -90,6 +93,8 @@ func main() {
 	http.HandleFunc("/api/parse-uri", handleParseURI)
 	http.HandleFunc("/api/ping", handlePing)
 	http.HandleFunc("/api/auto-best", handleAutoBest)
+	http.HandleFunc("/api/check-update", handleCheckUpdate)
+	http.HandleFunc("/api/apply-update", handleApplyUpdate)
 
 	// Serve mobile web interface: check disk paths first (dev mode), fallback to embedded WebFS
 	var webHandler http.Handler
@@ -290,4 +295,96 @@ func handleAutoBest(w http.ResponseWriter, r *http.Request) {
 	rawJSON, _ := json.Marshal(req.Servers)
 	bestIdx := mobile.FindFastestServer(string(rawJSON))
 	jsonResponse(w, r, true, "", map[string]int{"best_index": bestIdx})
+}
+
+var (
+	updateMu       sync.Mutex
+	isUpdating     bool
+	updateProgress int
+	updateStatus   string
+	updateErr      string
+)
+
+func handleCheckUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		return
+	}
+	rel, err := updater.CheckUpdate("")
+	if err != nil {
+		jsonResponse(w, r, false, "Failed to check update: "+err.Error(), nil)
+		return
+	}
+	jsonResponse(w, r, true, "", map[string]any{
+		"tag_name":        rel.TagName,
+		"name":            rel.Name,
+		"body":            rel.Body,
+		"html_url":        rel.HTMLURL,
+		"published_at":    rel.PublishedAt,
+		"is_newer":        rel.IsNewer,
+		"download_url":    rel.DownloadURL,
+		"apk_url":         rel.APKURL,
+		"current_version": updater.CurrentVersion,
+	})
+}
+
+func handleApplyUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		return
+	}
+	updateMu.Lock()
+	defer updateMu.Unlock()
+
+	if r.Method == http.MethodGet {
+		jsonResponse(w, r, true, "", map[string]any{
+			"is_updating": isUpdating,
+			"progress":    updateProgress,
+			"status":      updateStatus,
+			"error":       updateErr,
+		})
+		return
+	}
+
+	if isUpdating {
+		jsonResponse(w, r, true, "Update already in progress", map[string]any{
+			"is_updating": true,
+			"progress":    updateProgress,
+			"status":      updateStatus,
+		})
+		return
+	}
+
+	var req struct {
+		DownloadURL string `json:"download_url"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	isUpdating = true
+	updateProgress = 0
+	updateStatus = "Starting update..."
+	updateErr = ""
+
+	go func(targetURL string) {
+		err := updater.DownloadAndApplyUpdate(targetURL, func(pct int, status string) {
+			updateMu.Lock()
+			updateProgress = pct
+			updateStatus = status
+			updateMu.Unlock()
+		})
+		updateMu.Lock()
+		isUpdating = false
+		if err != nil {
+			updateErr = err.Error()
+			updateStatus = "Error: " + err.Error()
+		} else {
+			updateProgress = 100
+			updateStatus = "Update applied successfully"
+		}
+		updateMu.Unlock()
+	}(req.DownloadURL)
+
+	jsonResponse(w, r, true, "Update initiated", map[string]any{
+		"is_updating": true,
+		"progress":    0,
+		"status":      "Starting update...",
+	})
 }

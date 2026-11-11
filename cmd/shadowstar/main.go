@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/shadowstar/shadowstar/pkg/client"
@@ -18,7 +19,7 @@ import (
 )
 
 var (
-	version = "1.4.1-stealth"
+	version = "1.4.2-stealth"
 )
 
 func main() {
@@ -36,10 +37,42 @@ func main() {
 	listServers := flag.Bool("list", false, "List configured servers")
 	keyFlag := flag.String("key", "", "Master key to connect or override active node")
 	serverFlag := flag.String("server", "", "Remote server address (host:port)")
+	doUpdate := flag.Bool("update", false, "Check for updates and apply latest release from GitHub")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("ShadowStar Client v%s (Anti-DPI Protocol)\n", version)
+		return
+	}
+
+	if *doUpdate {
+		fmt.Printf("◈ ShadowStar Client v%s — Checking for updates on GitHub...\n", version)
+		rel, err := updater.CheckUpdate("")
+		if err != nil {
+			log.Fatalf("[Error] Failed to query GitHub releases: %v\n", err)
+		}
+		if !rel.IsNewer {
+			fmt.Printf("[✓] You are already using the latest version (%s)!\n", version)
+			return
+		}
+
+		fmt.Printf("[★] New version available: %s (Released: %s)\n", rel.TagName, rel.PublishedAt)
+		if rel.Name != "" {
+			fmt.Printf("    Title: %s\n", rel.Name)
+		}
+		fmt.Printf("    Release Page: %s\n", rel.HTMLURL)
+		fmt.Printf("    Download Asset: %s\n", rel.DownloadURL)
+		fmt.Println("[*] Downloading and installing update...")
+		err = updater.DownloadAndApplyUpdate(rel.DownloadURL, func(pct int, status string) {
+			barLen := 30
+			filled := (pct * barLen) / 100
+			bar := strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled)
+			fmt.Printf("\r    [%s] %3d%% — %s", bar, pct, status)
+		})
+		if err != nil {
+			log.Fatalf("\n[Error] Update failed: %v\n", err)
+		}
+		fmt.Println("\n[✓] Update applied successfully! Restarting ShadowStar...")
 		return
 	}
 

@@ -2,9 +2,11 @@ package com.shadowstar.vpn
 
 import android.app.Activity
 import android.content.BroadcastReceiver
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
 import android.widget.Toast
@@ -28,8 +30,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -40,6 +45,8 @@ class MainActivity : ComponentActivity() {
     private var activeServerIndex by mutableStateOf(0)
     private var speedDown by mutableStateOf("0 KB/s")
     private var speedUp by mutableStateOf("0 KB/s")
+    private var availableUpdateTag by mutableStateOf<String?>(null)
+    private var availableApkUrl by mutableStateOf<String?>(null)
 
     private val vpnPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -64,6 +71,9 @@ class MainActivity : ComponentActivity() {
         // Load saved servers or default demo node
         loadServers()
 
+        // Background GitHub release update check
+        checkUpdateAsync()
+
         // Handle intent if launched via shadowstar:// URL
         intent?.data?.toString()?.let { uri ->
             if (uri.startsWith("shadowstar://")) {
@@ -79,11 +89,61 @@ class MainActivity : ComponentActivity() {
                     speedUp = speedUp,
                     servers = serversList,
                     selectedIndex = activeServerIndex,
+                    updateTag = availableUpdateTag,
                     onToggleConnect = { toggleConnection() },
                     onSelectServer = { idx -> activeServerIndex = idx; saveServers() },
                     onDeleteServer = { idx -> deleteServer(idx) },
-                    onAddServer = { s -> addServer(s) }
+                    onImportUri = { uri -> importFromUri(uri) },
+                    onOpenUpdate = { openUpdate(availableApkUrl) }
                 )
+            }
+        }
+    }
+
+    private fun openUpdate(url: String?) {
+        if (!url.isNullOrEmpty()) {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Не удалось открыть ссылку: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun checkUpdateAsync() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val url = java.net.URL("https://api.github.com/repos/komendant-zero/shadowstar/releases/latest")
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.setRequestProperty("User-Agent", "ShadowStar-Android/v1.4.1")
+                conn.connectTimeout = 6000
+                conn.readTimeout = 6000
+                if (conn.responseCode == 200) {
+                    val text = conn.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(text)
+                    val tag = json.optString("tag_name", "")
+                    if (tag.isNotEmpty() && tag != "v1.4.1") {
+                        var apk: String? = null
+                        val assets = json.optJSONArray("assets")
+                        if (assets != null) {
+                            for (i in 0 until assets.length()) {
+                                val a = assets.getJSONObject(i)
+                                val name = a.optString("name", "")
+                                if (name.endsWith(".apk", ignoreCase = true)) {
+                                    apk = a.optString("browser_download_url")
+                                    break
+                                }
+                            }
+                        }
+                        withContext(Dispatchers.Main) {
+                            availableUpdateTag = tag
+                            availableApkUrl = apk ?: json.optString("html_url")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore network errors on background check
             }
         }
     }
@@ -275,12 +335,15 @@ fun MainScreen(
     speedUp: String,
     servers: List<ServerItem>,
     selectedIndex: Int,
+    updateTag: String?,
     onToggleConnect: () -> Unit,
     onSelectServer: (Int) -> Unit,
     onDeleteServer: (Int) -> Unit,
-    onAddServer: (ServerItem) -> Unit
+    onImportUri: (String) -> Unit,
+    onOpenUpdate: () -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Column(
         modifier = Modifier
@@ -304,7 +367,30 @@ fun MainScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        // GitHub Release Update Banner
+        if (updateTag != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF231D10))
+                    .clickable { onOpenUpdate() }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("★", color = Color(0xFFF59E0B), fontSize = 16.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Доступно обновление $updateTag", color = Color(0xFFFEF08A), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                Text("Скачать APK →", color = Color(0xFF00E5FF), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Center Big Power Button
         Box(
@@ -327,7 +413,7 @@ fun MainScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // Telemetry Card
         Row(
@@ -335,7 +421,7 @@ fun MainScreen(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xFF101726))
-                .padding(16.dp),
+                .padding(14.dp),
             horizontalArrangement = Arrangement.SpaceAround
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -348,7 +434,7 @@ fun MainScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // Servers List Header
         Row(
@@ -405,31 +491,49 @@ fun MainScreen(
     }
 
     if (showAddDialog) {
-        var newName by remember { mutableStateOf("") }
-        var newAddr by remember { mutableStateOf("") }
-        var newKey by remember { mutableStateOf("") }
+        var smartInput by remember { mutableStateOf("") }
 
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
-            title = { Text("Новый узел ShadowStar") },
+            title = { Text("Добавить узел ShadowStar") },
             text = {
                 Column {
-                    OutlinedTextField(value = newName, onValueChange = { newName = it }, label = { Text("Название") })
+                    Text(
+                        "Вставьте shadowstar:// ссылку, IP:Port:Key или 32-байтный мастер-ключ:",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = smartInput,
+                        onValueChange = { smartInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("shadowstar://... или IP:Port:Key", fontSize = 12.sp) },
+                        maxLines = 3
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(value = newAddr, onValueChange = { newAddr = it }, label = { Text("Адрес (IP:Port)") })
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(value = newKey, onValueChange = { newKey = it }, label = { Text("Мастер-ключ") })
+                    OutlinedButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
+                            if (!clipText.isNullOrEmpty()) {
+                                smartInput = clipText
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("📋 Вставить из буфера")
+                    }
                 }
             },
             confirmButton = {
                 Button(onClick = {
-                    if (newAddr.isNotBlank() && newKey.isNotBlank()) {
-                        val name = if (newName.isBlank()) newAddr else newName
-                        onAddServer(ServerItem("node-${System.currentTimeMillis()}", name, newAddr, newKey, "www.microsoft.com", 0))
+                    if (smartInput.isNotBlank()) {
+                        onImportUri(smartInput.trim())
                         showAddDialog = false
                     }
                 }) {
-                    Text("Сохранить")
+                    Text("Подключить")
                 }
             },
             dismissButton = {

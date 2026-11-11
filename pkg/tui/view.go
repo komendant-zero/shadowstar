@@ -8,6 +8,7 @@ import (
 
 	"github.com/shadowstar/shadowstar/pkg/client"
 	"github.com/shadowstar/shadowstar/pkg/i18n"
+	"github.com/shadowstar/shadowstar/pkg/updater"
 )
 
 // RenderFrame renders a complete, flicker-free TUI frame
@@ -91,8 +92,13 @@ func (t *TUI) renderHeader(w int) string {
 		langBadge = Cyan("[RU|") + BrightYellow(Bold("EN")) + Cyan("]")
 	}
 
+	updateBadge := ""
+	if t.availableUpdate != nil && t.availableUpdate.IsNewer {
+		updateBadge = BrightYellow(Bold("[★ UPDATE " + t.availableUpdate.TagName + "]")) + " "
+	}
+
 	left := fmt.Sprintf(" %s", title)
-	right := fmt.Sprintf("%s   %s ", statusBadge, langBadge)
+	right := fmt.Sprintf("%s%s   %s ", updateBadge, statusBadge, langBadge)
 	sb.WriteString(t.formatLine(left, right, w))
 	sb.WriteString("\n├" + strings.Repeat("─", w) + "┤")
 	return sb.String()
@@ -511,6 +517,13 @@ func (t *TUI) renderFooter(w int) string {
 	pKey := BrightCyan("[P]")
 	pText := i18n.T("Пинг", "Ping")
 
+	vKey := BrightCyan("[V]")
+	vText := i18n.T("Обнов", "Update")
+	if t.availableUpdate != nil && t.availableUpdate.IsNewer {
+		vKey = BrightYellow("[V]")
+		vText = BrightYellow(Bold(i18n.T("Обнов!", "Update!")))
+	}
+
 	tabKey := BrightCyan("[Tab]")
 	tabText := i18n.T("Язык", "Lang")
 
@@ -527,6 +540,7 @@ func (t *TUI) renderFooter(w int) string {
 	if w >= 90 {
 		items = append(items, pKey+" "+pText)
 	}
+	items = append(items, vKey+" "+vText)
 	items = append(items, tabKey+" "+tabText)
 	items = append(items, qKey+" "+qText)
 
@@ -680,6 +694,50 @@ func (t *TUI) overlayModal(bg string, totalW, totalH int) string {
 		modalLines[5] = "│" + Center(Cyan(active.ServerAddr), modalInnerW) + "│"
 		modalLines[6] = "├" + strings.Repeat("─", modalInnerW) + "┤"
 		modalLines[7] = "│" + Center(i18n.T("[Y] Удалить  |  [N/Esc] Отмена", "[Y] Delete  |  [N/Esc] Cancel"), modalInnerW) + "│"
+		modalLines[8] = "└" + strings.Repeat("─", modalInnerW) + "┘"
+
+	case ModalUpdate:
+		modalLines[0] = "┌" + strings.Repeat("─", modalInnerW) + "┐"
+		modalLines[1] = "│" + Center(BrightCyan(Bold(i18n.T("ОБНОВЛЕНИЕ SHADOWSTAR", "SHADOWSTAR UPDATE"))), modalInnerW) + "│"
+		modalLines[2] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+		if t.isUpdatingApp {
+			modalLines[3] = "│" + Center(BrightYellow(t.updateStatus), modalInnerW) + "│"
+			pct := t.updateProgress
+			barW := modalInnerW - 14
+			if barW < 8 {
+				barW = 8
+			}
+			filled := (pct * barW) / 100
+			if filled > barW {
+				filled = barW
+			}
+			bar := strings.Repeat("█", filled) + strings.Repeat("░", barW-filled)
+			modalLines[4] = "│" + Center(fmt.Sprintf("[%s] %3d%%", Green(bar), pct), modalInnerW) + "│"
+			modalLines[5] = "│" + Center(Gray(i18n.T("Пожалуйста, подождите...", "Please wait...")), modalInnerW) + "│"
+			modalLines[6] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+			modalLines[7] = "│" + Center(Dim("..."), modalInnerW) + "│"
+		} else if t.availableUpdate != nil && t.availableUpdate.IsNewer {
+			modalLines[3] = "│ " + PadRight(fmt.Sprintf(i18n.T("Доступна новая версия: %s (текущая: %s)", "New version available: %s (current: %s)"), BrightGreen(t.availableUpdate.TagName), Yellow(updater.CurrentVersion)), modalInnerW-1) + "│"
+			desc := t.availableUpdate.Body
+			if desc == "" {
+				desc = i18n.T("Улучшения безопасности и стабильности.", "Security and stability improvements.")
+			}
+			firstLine := strings.Split(strings.TrimSpace(desc), "\n")[0]
+			modalLines[4] = "│ " + PadRight(Gray(Truncate(firstLine, modalInnerW-3)), modalInnerW-1) + "│"
+			if t.modalError != "" {
+				modalLines[5] = "│ " + PadRight(BrightRed(Truncate(t.modalError, modalInnerW-2)), modalInnerW-1) + "│"
+			} else {
+				modalLines[5] = "│ " + PadRight(Dim(i18n.T("Файл будет загружен из GitHub Releases и применен", "Package will be fetched from GitHub Releases")), modalInnerW-1) + "│"
+			}
+			modalLines[6] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+			modalLines[7] = "│" + Center(i18n.T("[Enter] Обновить сейчас  |  [Esc] Отмена", "[Enter] Update now  |  [Esc] Cancel"), modalInnerW) + "│"
+		} else {
+			modalLines[3] = "│" + Center(BrightGreen(i18n.T("У вас установлена последняя версия!", "You have the latest version installed!")), modalInnerW) + "│"
+			modalLines[4] = "│" + Center(Yellow(fmt.Sprintf("ShadowStar %s (GitHub Releases)", updater.CurrentVersion)), modalInnerW) + "│"
+			modalLines[5] = "│" + Center(Gray(i18n.T("Обновлений не требуется", "No updates needed")), modalInnerW) + "│"
+			modalLines[6] = "├" + strings.Repeat("─", modalInnerW) + "┤"
+			modalLines[7] = "│" + Center(Gray(i18n.T("[Enter/Esc] Закрыть", "[Enter/Esc] Close")), modalInnerW) + "│"
+		}
 		modalLines[8] = "└" + strings.Repeat("─", modalInnerW) + "┘"
 	}
 

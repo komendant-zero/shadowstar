@@ -1,159 +1,108 @@
-// ShadowStar Mobile Web / PWA Engine
+// ShadowStar Mobile Web / PWA Engine v1.4.2
 const API_BASE = 'http://127.0.0.1:10810/api';
-const CURRENT_VERSION = 'v1.3.0';
+const CURRENT_VERSION = 'v1.4.2';
 
 const i18n = {
   ru: {
-    brandSub: 'STEALTH REALITY VPN • MOBILE',
-    tabTunnel: 'Туннель',
-    tabServers: 'Серверы',
     statusOn: 'ПОДКЛЮЧЕНО',
     statusOff: 'ОТКЛЮЧЕНО',
     statusConnecting: 'ПОДКЛЮЧЕНИЕ...',
     statusSubOn: 'Анти-DPI туннель активен • TLS 1.3 Reality',
     statusSubOff: 'Нажмите для включения защиты',
     statusSubConnecting: 'Согласование X25519 ключей...',
-    downLabel: 'Скачивание',
-    upLabel: 'Отдача',
-    securityTitle: 'Режим анти-DPI обхода',
-    securityActive: 'АКТИВЕН',
-    activeNodeTitle: 'ТЕКУЩИЙ УЗЕЛ',
-    noNodes: 'Нет доступных узлов',
-    addFirst: 'Добавьте узел во вкладке «Серверы»',
-    maskLabel: 'Маскировка:',
-    cipherLabel: 'Шифрование:',
-    toolAdd: 'Новый узел',
-    toolSub: 'URL подписки',
+    downShort: 'СКАЧ:',
+    upShort: 'ОТД:',
+    timeShort: 'ВРЕМЯ:',
+    noNodes: 'Нет серверов',
+    tabServers: 'Серверы',
     toolFastest: 'Самый быстрый',
-    nodesHeader: 'Узлы',
-    emptyList: 'Список узлов пуст',
-    emptySub: 'Добавьте узел вручную или загрузите подписку',
-    modalAddTitle: 'Добавление узла',
-    modalEditTitle: 'Редактирование узла',
-    tabByKey: 'По ключу / ссылке',
-    tabFull: 'Полные данные',
-    labelNodeName: 'Название ноды',
-    phNodeName: 'Например: Мой VPS',
-    labelKeyOrLink: 'Ключ или ссылка shadowstar://',
-    phKeyOrLink: 'shadowstar://... или IP:Port:Key или Ключ',
-    hintQuickKey: 'Поддерживаются ссылки shadowstar://, формат IP:Port:Key или 32-байтный ключ',
-    labelNodeAddr: 'Адрес и порт сервера (IP:Port)',
-    phAddr: '198.51.100.1:4433',
-    labelNodeKey: 'Мастер-ключ безопасности',
-    phKey: '32-байтный hex мастер-ключ',
-    labelNodeSni: 'Маскировка SNI (Decoy Domain)',
-    phSni: 'www.microsoft.com',
-    btnPaste: 'Вставить',
-    btnAddNode: 'Добавить узел',
-    btnSaveNode: 'Сохранить узел',
-    subTitle: 'URL подписки ShadowStar',
-    subInput: 'Прямая ссылка на подписку',
-    phSubUrl: 'https://example.com/api/subscription',
-    subDesc: 'Поддерживаются форматы JSON, Base64 и списки ссылок вида shadowstar://',
-    loadSubBtn: 'Загрузить и обновить',
-    editBtn: 'Изменить',
-    testBtn: 'Тест',
-    deleteBtn: 'Удалить',
-    deleteConfirm: 'Удалить этот узел?',
-    pasted: 'Вставлено из буфера',
-    copied: 'Скопировано в буфер',
-    tunnelOn: 'Анти-DPI туннель активен',
-    tunnelOff: 'Туннель отключён',
-    noNodesToConnect: 'Нет узлов для подключения',
-    nodeAdded: 'Узел успешно добавлен',
-    nodeSaved: 'Узел успешно сохранён',
-    nodeDeleted: 'Узел удалён',
     toolUpdateSub: 'Обновить',
-    quickSwitchTitle: 'Быстрое переключение',
-    viewAllNodes: 'Все узлы →',
-    subSuccess: 'Узлы из подписки успешно загружены',
-    subEmpty: 'В подписке не найдено узлов',
-    subFetchFail: 'Ошибка загрузки подписки'
+    nodesHeader: 'Серверы',
+    btnAddShort: 'Добавить',
+    modalAddTitle: 'Добавить узел или подписку',
+    smartInputLabel: 'Ключ, ссылка shadowstar:// или URL подписки',
+    smartInputPh: 'Вставьте shadowstar:// ссылку, IP:Port:Key, мастер-ключ или https:// URL подписки',
+    btnPaste: 'Вставить из буфера',
+    btnAddConnect: 'Добавить и подключить',
+    updateBannerTitle: 'Доступно обновление',
+    btnUpdate: 'Обновить',
+    updateModalTitle: 'Обновление ShadowStar',
+    btnInstallUpdate: 'Установить обновление',
+    btnDownloadApk: 'Скачать ShadowStar.apk',
+    shieldActive: 'Анти-DPI защита активна:',
+    pasted: 'Вставлено из буфера',
+    copied: 'Скопировано',
+    nodeAdded: 'Узел успешно добавлен',
+    nodeDeleted: 'Узел удалён',
+    deleteConfirm: 'Удалить этот сервер?',
+    subSuccess: 'Подписка обновлена',
+    subEmpty: 'Серверы в подписке не найдены',
+    subFail: 'Ошибка обновления подписки',
+    bestFound: 'Выбран самый быстрый узел',
+    updateAvailable: 'Доступна новая версия',
+    updateLatest: 'У вас последняя версия',
+    updateSuccess: 'Обновление успешно применено!',
+    updateFailed: 'Ошибка обновления'
   },
   en: {
-    brandSub: 'STEALTH REALITY VPN • MOBILE',
-    tabTunnel: 'Tunnel',
-    tabServers: 'Servers',
     statusOn: 'CONNECTED',
     statusOff: 'DISCONNECTED',
     statusConnecting: 'CONNECTING...',
     statusSubOn: 'Anti-DPI tunnel active • TLS 1.3 Reality',
     statusSubOff: 'Tap to enable stealth protection',
     statusSubConnecting: 'Negotiating X25519 keys...',
-    downLabel: 'Download',
-    upLabel: 'Upload',
-    securityTitle: 'Anti-DPI Stealth Mode',
-    securityActive: 'ACTIVE',
-    activeNodeTitle: 'ACTIVE NODE',
-    noNodes: 'No nodes available',
-    addFirst: 'Add a server node in Servers tab',
-    maskLabel: 'Masking:',
-    cipherLabel: 'Cipher:',
-    toolAdd: 'Add Node',
-    toolSub: 'Subscription URL',
-    toolFastest: 'Fastest Node',
-    nodesHeader: 'Nodes',
-    emptyList: 'Server list is empty',
-    emptySub: 'Add a server manually or load subscription URL',
-    modalAddTitle: 'Add Node',
-    modalEditTitle: 'Edit Node',
-    tabByKey: 'By Key / Link',
-    tabFull: 'Full Details',
-    labelNodeName: 'Node Name',
-    phNodeName: 'e.g. My VPS',
-    labelKeyOrLink: 'Key or shadowstar:// link',
-    phKeyOrLink: 'shadowstar://... or IP:Port:Key or Key',
-    hintQuickKey: 'Supports shadowstar:// links, IP:Port:Key or 32-byte master key',
-    labelNodeAddr: 'Server Address (IP:Port)',
-    phAddr: '198.51.100.1:4433',
-    labelNodeKey: 'Security Master Key',
-    phKey: '32-byte hex master key',
-    labelNodeSni: 'SNI Masking (Decoy Domain)',
-    phSni: 'www.microsoft.com',
-    btnPaste: 'Paste',
-    btnAddNode: 'Add Node',
-    btnSaveNode: 'Save Node',
-    subTitle: 'ShadowStar Subscription URL',
-    subInput: 'Direct subscription URL',
-    phSubUrl: 'https://example.com/api/subscription',
-    subDesc: 'Supports JSON, Base64 and link lists',
-    loadSubBtn: 'Load & Update',
-    editBtn: 'Edit',
-    testBtn: 'Test',
-    deleteBtn: 'Delete',
-    deleteConfirm: 'Delete this node?',
-    pasted: 'Pasted from clipboard',
-    copied: 'Copied to clipboard',
-    tunnelOn: 'Anti-DPI tunnel active',
-    tunnelOff: 'Tunnel disconnected',
-    noNodesToConnect: 'No nodes to connect',
-    nodeAdded: 'Node added successfully',
-    nodeSaved: 'Node saved successfully',
-    nodeDeleted: 'Node deleted',
+    downShort: 'DOWN:',
+    upShort: 'UP:',
+    timeShort: 'TIME:',
+    noNodes: 'No servers',
+    tabServers: 'Servers',
+    toolFastest: 'Fastest',
     toolUpdateSub: 'Update',
-    quickSwitchTitle: 'Quick Switch',
-    viewAllNodes: 'All Nodes →',
-    subSuccess: 'Subscription nodes updated successfully',
-    subEmpty: 'No nodes found in subscription',
-    subFetchFail: 'Failed to load subscription'
+    nodesHeader: 'Servers',
+    btnAddShort: 'Add',
+    modalAddTitle: 'Add Node or Subscription',
+    smartInputLabel: 'Key, shadowstar:// link or Subscription URL',
+    smartInputPh: 'Paste shadowstar:// link, IP:Port:Key, master key or https:// subscription URL',
+    btnPaste: 'Paste from clipboard',
+    btnAddConnect: 'Add & Connect',
+    updateBannerTitle: 'Update Available',
+    btnUpdate: 'Update',
+    updateModalTitle: 'ShadowStar Update',
+    btnInstallUpdate: 'Install Update Now',
+    btnDownloadApk: 'Download ShadowStar.apk',
+    shieldActive: 'Anti-DPI shield active:',
+    pasted: 'Pasted from clipboard',
+    copied: 'Copied',
+    nodeAdded: 'Server added successfully',
+    nodeDeleted: 'Server deleted',
+    deleteConfirm: 'Delete this server?',
+    subSuccess: 'Subscription updated',
+    subEmpty: 'No servers found in subscription',
+    subFail: 'Failed to update subscription',
+    bestFound: 'Fastest server selected',
+    updateAvailable: 'New version available',
+    updateLatest: 'You have the latest version',
+    updateSuccess: 'Update applied successfully!',
+    updateFailed: 'Update failed'
   }
 };
 
 const state = {
-  currentTab: 'dashboard',
   currentLang: localStorage.getItem('shadowstar_lang') || 'ru',
-  addMode: 'key',
   connected: false,
   connecting: false,
+  connectStartTime: null,
   servers: [],
   activeServerId: null,
+  subscriptionUrl: localStorage.getItem('shadowstar_sub_url') || '',
   stats: {
     speedDown: 0,
     speedUp: 0,
     bytesDown: 0,
     bytesUp: 0
   },
-  editingServerId: null
+  availableUpdate: null,
+  isUpdating: false
 };
 
 function t(key) {
@@ -163,41 +112,50 @@ function t(key) {
 
 function applyLanguage() {
   const dict = i18n[state.currentLang] || i18n.ru;
-
   document.querySelectorAll('[data-i18n]').forEach(el => {
-    const key = el.dataset.i18n;
-    if (dict[key]) {
-      el.textContent = dict[key];
-    }
+    const k = el.dataset.i18n;
+    if (dict[k]) el.textContent = dict[k];
   });
-
   document.querySelectorAll('[data-i18n-ph]').forEach(el => {
-    const key = el.dataset.i18nPh;
-    if (dict[key]) {
-      el.placeholder = dict[key];
-    }
+    const k = el.dataset.i18nPh;
+    if (dict[k]) el.placeholder = dict[k];
   });
-
   const langBtn = document.getElementById('lang-btn');
-  if (langBtn) {
-    langBtn.textContent = state.currentLang.toUpperCase();
-  }
+  if (langBtn) langBtn.textContent = state.currentLang.toUpperCase();
 }
 
 function toggleLanguage() {
   state.currentLang = (state.currentLang === 'ru') ? 'en' : 'ru';
   localStorage.setItem('shadowstar_lang', state.currentLang);
   applyLanguage();
-  renderAll();
+  updateUI();
   showToast(state.currentLang === 'ru' ? 'Язык: Русский' : 'Language: English');
+}
+
+// Country flags helper
+function getCountryFlag(addr, name) {
+  const text = ((name || '') + ' ' + (addr || '')).toLowerCase();
+  if (text.includes('nl') || text.includes('neth') || text.includes('amsterdam')) return '🇳🇱';
+  if (text.includes('de') || text.includes('germ') || text.includes('frankfurt')) return '🇩🇪';
+  if (text.includes('us') || text.includes('usa') || text.includes('united states') || text.includes('virginia')) return '🇺🇸';
+  if (text.includes('fi') || text.includes('helsinki')) return '🇫🇮';
+  if (text.includes('gb') || text.includes('uk') || text.includes('london')) return '🇬🇧';
+  if (text.includes('fr') || text.includes('paris')) return '🇫🇷';
+  if (text.includes('ru') || text.includes('moscow') || text.includes('russia')) return '🇷🇺';
+  if (text.includes('kz') || text.includes('almaty')) return '🇰🇿';
+  if (text.includes('jp') || text.includes('tokyo')) return '🇯🇵';
+  if (text.includes('sg') || text.includes('singapore')) return '🇸🇬';
+  if (text.includes('tr') || text.includes('turk') || text.includes('istanbul')) return '🇹🇷';
+  return '🌐';
 }
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
   loadStoredServers();
   applyLanguage();
-  renderAll();
+  updateUI();
   startTelemetryPolling();
+  checkUpdateAsync();
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -224,844 +182,703 @@ function loadStoredServers() {
   }
 
   const cfgList = embeddedCfg ? (embeddedCfg.servers || embeddedCfg.nodes || []) : [];
-  const onlyHasDemo = !state.servers || state.servers.length === 0 || state.servers.every(s => s.id === 'node-nl-demo' || s.id === 'shadowstar-demo-node');
-
-  if (cfgList.length > 0) {
-    if (onlyHasDemo) {
-      state.servers = cfgList.map((n, idx) => ({
-        id: n.id || ('node-' + idx),
-        name: n.name || 'ShadowStar Node',
-        addr: n.server_addr || n.addr,
-        key: n.master_key || n.key,
-        sni: n.sni || 'www.microsoft.com',
-        country: n.country || 'NL',
-        ping: n.ping || 25
-      }));
-      state.activeServerId = embeddedCfg.active_id || (state.servers[0] ? state.servers[0].id : null);
-      saveStoredServers();
-    } else {
-      // Ensure real embedded server is present in the list
-      cfgList.forEach((n, idx) => {
-        const addr = n.server_addr || n.addr;
-        if (addr && !state.servers.some(s => s.addr === addr)) {
-          state.servers.unshift({
-            id: n.id || ('node-' + idx),
-            name: n.name || 'ShadowStar Node',
-            addr: addr,
-            key: n.master_key || n.key,
-            sni: n.sni || 'www.microsoft.com',
-            country: n.country || 'NL',
-            ping: n.ping || 25
-          });
-        }
-      });
-      // Filter out any broken test nodes pointing to 127.0.0.1
-      state.servers = state.servers.filter(s => s.addr !== '127.0.0.1:4433');
-      saveStoredServers();
-    }
-  } else if (!state.servers || state.servers.length === 0) {
-    state.servers = [
-      {
-        id: 'node-nl-demo',
-        name: 'Demo Node (NL Amsterdam)',
-        addr: 'demo-node.shadowstar.org:4433',
-        key: 'shadowstar-demo-key-v1',
-        sni: 'www.microsoft.com',
-        country: 'NL',
-        ping: 35
-      }
-    ];
+  if (cfgList.length > 0 && (!state.servers || state.servers.length === 0)) {
+    state.servers = cfgList.map((n, idx) => ({
+      id: n.id || ('node-' + idx),
+      name: n.name || 'ShadowStar Node',
+      addr: n.server_addr || n.addr,
+      key: n.master_key || n.key,
+      sni: n.sni || 'www.microsoft.com',
+      country: n.country || getCountryFlag(n.server_addr || n.addr, n.name),
+      ping: n.ping || 35
+    }));
+    state.activeServerId = embeddedCfg.active_id || (state.servers[0] ? state.servers[0].id : null);
     saveStoredServers();
   }
 
-  const storedActive = localStorage.getItem('shadowstar_mobile_active_id');
-  if (storedActive && state.servers.some(s => s.id === storedActive)) {
-    state.activeServerId = storedActive;
-  } else if (state.servers.length > 0) {
+  // Fallback default VPS node if list is empty
+  if (!state.servers || state.servers.length === 0) {
+    state.servers = [
+      {
+        id: 'node-main-vps',
+        name: 'ShadowStar Netherlands (VPS)',
+        addr: '179.253.74.36:4433',
+        key: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        sni: 'www.microsoft.com',
+        country: '🇳🇱',
+        ping: 38
+      }
+    ];
+    state.activeServerId = 'node-main-vps';
+    saveStoredServers();
+  }
+
+  const savedActive = localStorage.getItem('shadowstar_active_id');
+  if (savedActive && state.servers.some(s => s.id === savedActive)) {
+    state.activeServerId = savedActive;
+  } else if (!state.activeServerId && state.servers.length > 0) {
     state.activeServerId = state.servers[0].id;
-  } else {
-    state.activeServerId = null;
   }
 }
 
 function saveStoredServers() {
   localStorage.setItem('shadowstar_mobile_servers', JSON.stringify(state.servers));
   if (state.activeServerId) {
-    localStorage.setItem('shadowstar_mobile_active_id', state.activeServerId);
-  } else {
-    localStorage.removeItem('shadowstar_mobile_active_id');
+    localStorage.setItem('shadowstar_active_id', state.activeServerId);
   }
 }
 
-// --- Navigation Tabs ---
-function switchTab(tab) {
-  state.currentTab = tab;
-  document.getElementById('nav-tunnel').classList.toggle('active', tab === 'dashboard');
-  document.getElementById('nav-servers').classList.toggle('active', tab === 'servers');
-  document.getElementById('view-dashboard').style.display = (tab === 'dashboard') ? 'block' : 'none';
-  document.getElementById('view-servers').style.display = (tab === 'servers') ? 'block' : 'none';
-  if (tab === 'servers') {
-    renderServersList();
+function getActiveServer() {
+  if (!state.servers || state.servers.length === 0) return null;
+  return state.servers.find(s => s.id === state.activeServerId) || state.servers[0];
+}
+
+// --- UI Rendering ---
+function updateUI() {
+  const active = getActiveServer();
+  const powerBtn = document.getElementById('power-btn');
+  const statusBadge = document.getElementById('status-badge');
+  const statusSub = document.getElementById('status-sub');
+
+  if (state.connecting) {
+    powerBtn.className = 'power-btn-outer connecting';
+    statusBadge.className = 'status-badge connecting';
+    statusBadge.textContent = t('statusConnecting');
+    statusSub.textContent = t('statusSubConnecting');
+  } else if (state.connected) {
+    powerBtn.className = 'power-btn-outer connected';
+    statusBadge.className = 'status-badge connected';
+    statusBadge.textContent = t('statusOn');
+    statusSub.textContent = t('statusSubOn');
+  } else {
+    powerBtn.className = 'power-btn-outer';
+    statusBadge.className = 'status-badge';
+    statusBadge.textContent = t('statusOff');
+    statusSub.textContent = t('statusSubOff');
   }
+
+  // Active Server Card
+  const flagEl = document.getElementById('active-flag');
+  const nameEl = document.getElementById('active-server-name');
+  const addrEl = document.getElementById('active-server-addr');
+  const pingEl = document.getElementById('active-server-ping');
+
+  if (active) {
+    flagEl.textContent = active.country || getCountryFlag(active.addr, active.name);
+    nameEl.textContent = active.name;
+    addrEl.textContent = active.addr;
+    const pingVal = active.ping || 35;
+    pingEl.textContent = pingVal + ' ms';
+    pingEl.className = 'server-ping-badge' + (pingVal > 150 ? ' red' : (pingVal > 80 ? ' amber' : ''));
+  } else {
+    flagEl.textContent = '🌐';
+    nameEl.textContent = t('noNodes');
+    addrEl.textContent = 'Нажмите, чтобы добавить узел';
+    pingEl.textContent = '-- ms';
+    pingEl.className = 'server-ping-badge';
+  }
+
+  // Node count indicators
+  const count = state.servers.length;
+  const countPill = document.getElementById('nodes-count-pill');
+  if (countPill) countPill.textContent = count;
+  const sheetCount = document.getElementById('servers-sheet-count');
+  if (sheetCount) sheetCount.textContent = count;
+
+  renderServersSheetList();
+}
+
+function renderServersSheetList() {
+  const listEl = document.getElementById('sheet-servers-list');
+  if (!listEl) return;
+
+  if (state.servers.length === 0) {
+    listEl.innerHTML = `<div style="text-align: center; color: var(--text-dim); padding: 24px;">${t('noNodes')}</div>`;
+    return;
+  }
+
+  let html = '';
+  state.servers.forEach((s) => {
+    const isActive = (s.id === state.activeServerId);
+    const flag = s.country || getCountryFlag(s.addr, s.name);
+    const pingVal = s.ping || 35;
+    const pingClass = pingVal > 150 ? 'red' : (pingVal > 80 ? 'amber' : '');
+
+    html += `
+      <div class="server-item ${isActive ? 'active' : ''}" onclick="selectServer('${s.id}')">
+        <div class="server-item-left">
+          <span class="server-item-flag">${flag}</span>
+          <div class="server-item-info">
+            <div class="server-item-name">${escapeHtml(s.name)}</div>
+            <div class="server-item-addr">${escapeHtml(s.addr)}</div>
+          </div>
+        </div>
+        <div class="server-item-right">
+          <span class="server-ping-badge ${pingClass}">${pingVal} ms</span>
+          <button class="server-item-del" onclick="event.stopPropagation(); deleteServer('${s.id}')" title="Удалить">✕</button>
+        </div>
+      </div>
+    `;
+  });
+
+  listEl.innerHTML = html;
 }
 
 // --- Connection Control ---
-async function toggleConnect() {
-  if (state.servers.length === 0) {
-    showToast(t('noNodesToConnect'));
-    return;
-  }
-
-  const active = state.servers.find(s => s.id === state.activeServerId) || state.servers[0];
-
-  if (window.AndroidBridge) {
-    if (state.connected) {
-      try { window.AndroidBridge.stopVpn(); } catch(e) {}
-      state.connected = false;
-      state.connecting = false;
-      renderPowerButton();
-      showToast(t('tunnelOff'));
-    } else {
-      state.connecting = true;
-      renderPowerButton();
-      showToast(active.name);
-      try {
-        if (window.AndroidBridge.startVpnWithProfile) {
-          window.AndroidBridge.startVpnWithProfile(
-            active.name || 'ShadowStar Node',
-            active.addr || (window.EMBEDDED_CONFIG && window.EMBEDDED_CONFIG.servers && window.EMBEDDED_CONFIG.servers[0] ? window.EMBEDDED_CONFIG.servers[0].server_addr : 'demo-node.shadowstar.org:4433'),
-            active.key || '',
-            active.sni || 'www.microsoft.com'
-          );
-        } else {
-          window.AndroidBridge.startVpn();
-        }
-      } catch(e) {
-        state.connecting = false;
-        renderPowerButton();
-        showToast('VPN Error: ' + e);
-      }
-    }
-    return;
-  }
-
-  // Fallback for browser / PWA mode
+function toggleConnect() {
   if (state.connected) {
-    state.connected = false;
-    showToast(t('tunnelOff'));
-    try {
-      await fetch(`${API_BASE}/disconnect`, { method: 'POST' });
-    } catch (e) {}
+    disconnectVPN();
   } else {
-    state.connecting = true;
-    renderPowerButton();
-    try {
-      const res = await fetch(`${API_BASE}/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profile_json: JSON.stringify({
-            id: active.id,
-            name: active.name,
-            server_addr: active.addr,
-            master_key: active.key,
-            sni: active.sni || 'www.microsoft.com',
-            enable_chunker: true
-          })
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        state.connected = true;
-        showToast(t('tunnelOn'));
-      } else {
-        showToast('Error: ' + (data.message || 'Connection failed'));
-      }
-    } catch (e) {
-      setTimeout(() => {
-        state.connected = true;
-        state.connecting = false;
-        renderPowerButton();
-        showToast(t('tunnelOn'));
-      }, 600);
-      return;
-    } finally {
-      state.connecting = false;
-    }
-  }
-
-  renderPowerButton();
-}
-
-window.onVpnStatusChanged = function(isActive) {
-  state.connected = isActive;
-  state.connecting = false;
-  renderPowerButton();
-  showToast(isActive ? t('tunnelOn') : t('tunnelOff'));
-};
-
-function renderPowerButton() {
-  const btn = document.getElementById('power-btn');
-  const badge = document.getElementById('status-badge');
-  const sub = document.getElementById('status-sub');
-
-  if (state.connected) {
-    btn.classList.add('connected');
-    btn.classList.remove('connecting');
-    badge.classList.add('connected');
-    badge.textContent = t('statusOn');
-    sub.textContent = t('statusSubOn');
-  } else if (state.connecting) {
-    btn.classList.remove('connected');
-    btn.classList.add('connecting');
-    badge.classList.remove('connected');
-    badge.textContent = t('statusConnecting');
-    sub.textContent = t('statusSubConnecting');
-  } else {
-    btn.classList.remove('connected');
-    btn.classList.remove('connecting');
-    badge.classList.remove('connected');
-    badge.textContent = t('statusOff');
-    sub.textContent = t('statusSubOff');
+    connectVPN();
   }
 }
 
-function renderActiveNodeCard() {
-  const card = document.getElementById('active-node-card');
-  const active = state.servers.find(s => s.id === state.activeServerId);
-
+function connectVPN() {
+  const active = getActiveServer();
   if (!active) {
-    card.innerHTML = `
-      <div class="node-overview-header">
-        <div class="node-title-row">
-          <span class="country-pill">--</span>
-          <div>
-            <div class="node-name">${t('noNodes')}</div>
-            <div class="node-addr">${t('addFirst')}</div>
-          </div>
-        </div>
-      </div>
-    `;
+    showToast(t('noNodes'));
+    openAddModal();
     return;
   }
 
-  card.innerHTML = `
-    <div class="node-overview-header">
-      <div class="node-title-row">
-        <span class="country-pill">${escapeHtml(active.country || 'VIP')}</span>
-        <div class="node-info-col">
-          <div class="node-name">${escapeHtml(active.name)}</div>
-          <div class="node-addr">${escapeHtml(active.addr)}</div>
-        </div>
-      </div>
-      <span class="ping-pill">${active.ping || 25} ms</span>
-    </div>
-    <div class="node-detail-grid">
-      <div class="node-detail-item">${t('maskLabel')} <strong>${escapeHtml(active.sni || 'www.microsoft.com')}</strong></div>
-      <div class="node-detail-item">${t('cipherLabel')} <strong>ChaCha20-Poly1305</strong></div>
-    </div>
-  `;
-}
+  state.connecting = true;
+  updateUI();
 
-function renderServersList() {
-  const listEl = document.getElementById('servers-list');
-  const countEl = document.getElementById('servers-count');
-  countEl.textContent = state.servers.length;
+  const payload = {
+    profile_json: JSON.stringify({
+      id: active.id,
+      name: active.name,
+      server_addr: active.addr,
+      master_key: active.key,
+      sni: active.sni || 'www.microsoft.com',
+      enable_chunker: true
+    })
+  };
 
-  if (state.servers.length === 0) {
-    listEl.innerHTML = `
-      <div class="glass-card" style="text-align: center; padding: 36px 16px;">
-        <div style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">${t('emptyList')}</div>
-        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 18px;">${t('emptySub')}</div>
-        <button class="btn-primary" style="max-width: 200px; margin: 0 auto;" onclick="openAddModal()">${t('toolAdd')}</button>
-      </div>
-    `;
-    return;
+  if (window.AndroidBridge && window.AndroidBridge.connectVPN) {
+    try {
+      window.AndroidBridge.connectVPN(payload.profile_json);
+      state.connected = true;
+      state.connecting = false;
+      state.connectStartTime = Date.now();
+      updateUI();
+      showToast(t('statusOn'));
+      return;
+    } catch (e) {}
   }
 
-  listEl.innerHTML = state.servers.map(s => {
-    const isAct = (s.id === state.activeServerId);
-    return `
-      <div class="server-item ${isAct ? 'active' : ''}" onclick="selectServer('${s.id}')">
-        <div class="server-header-row">
-          <div class="server-title-group">
-            <span class="country-pill">${escapeHtml(s.country || 'VIP')}</span>
-            <div class="server-info-col">
-              <div class="server-name">${escapeHtml(s.name)}</div>
-              <div class="server-addr">${escapeHtml(s.addr)}</div>
-            </div>
-          </div>
-          <span class="ping-pill">${s.ping || 30} ms</span>
-        </div>
-        <div class="server-actions" onclick="event.stopPropagation()">
-          <button class="btn-action-sm" type="button" onclick="editServer('${s.id}')">
-            <svg class="icon-sm" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            <span>${t('editBtn')}</span>
-          </button>
-          <button class="btn-action-sm" type="button" onclick="pingServer('${s.id}')">
-            <svg class="icon-sm" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            <span>${t('testBtn')}</span>
-          </button>
-          <button class="btn-action-sm danger" type="button" onclick="deleteServer('${s.id}')">
-            <svg class="icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            <span>${t('deleteBtn')}</span>
-          </button>
-        </div>
-      </div>
-    `;
-  }).join('');
+  fetch(`${API_BASE}/connect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(res => res.json())
+  .then(data => {
+    state.connecting = false;
+    if (data.success) {
+      state.connected = true;
+      state.connectStartTime = Date.now();
+      showToast(t('statusOn'));
+    } else {
+      state.connected = false;
+      showToast('Ошибка: ' + (data.message || 'connection failed'));
+    }
+    updateUI();
+  })
+  .catch(() => {
+    // Demo fallback mode for offline/browser-only view
+    setTimeout(() => {
+      state.connecting = false;
+      state.connected = true;
+      state.connectStartTime = Date.now();
+      updateUI();
+      showToast(t('statusOn'));
+    }, 600);
+  });
 }
 
+function disconnectVPN() {
+  if (window.AndroidBridge && window.AndroidBridge.disconnectVPN) {
+    try {
+      window.AndroidBridge.disconnectVPN();
+      state.connected = false;
+      state.connectStartTime = null;
+      updateUI();
+      showToast(t('statusOff'));
+      return;
+    } catch (e) {}
+  }
+
+  fetch(`${API_BASE}/disconnect`, { method: 'POST' })
+  .then(res => res.json())
+  .catch(() => ({}))
+  .finally(() => {
+    state.connected = false;
+    state.connectStartTime = null;
+    updateUI();
+    showToast(t('statusOff'));
+  });
+}
+
+// --- Server Selection & Actions ---
 function selectServer(id) {
   state.activeServerId = id;
   saveStoredServers();
-  renderAll();
-  const s = state.servers.find(x => x.id === id);
-  if (s) {
-    showToast(s.name);
-    // 1-Click Server Switch: If currently connected, seamlessly reconnect with the newly selected profile!
-    if (state.connected) {
-      if (window.AndroidBridge && window.AndroidBridge.startVpnWithProfile) {
-        window.AndroidBridge.startVpnWithProfile(
-          s.name || 'ShadowStar Node',
-          s.addr,
-          s.key,
-          s.sni || 'www.microsoft.com'
-        );
-      } else if (window.AndroidBridge && window.AndroidBridge.startVpn) {
-        window.AndroidBridge.startVpn();
-      }
-    }
+  closeModal('sheet-servers');
+  updateUI();
+
+  if (state.connected) {
+    showToast(t('statusConnecting'));
+    connectVPN();
   }
 }
 
 function deleteServer(id) {
-  if (confirm(t('deleteConfirm'))) {
-    state.servers = state.servers.filter(s => s.id !== id);
-    if (state.activeServerId === id) {
-      state.activeServerId = state.servers.length > 0 ? state.servers[0].id : null;
-    }
-    saveStoredServers();
-    renderAll();
-    showToast(t('nodeDeleted'));
+  if (state.servers.length <= 1) {
+    showToast(t('deleteConfirm'));
   }
-}
-
-function pingServer(id) {
-  const s = state.servers.find(x => x.id === id);
-  if (!s) return;
-  const simulated = Math.floor(Math.random() * 25) + 15;
-  s.ping = simulated;
+  state.servers = state.servers.filter(s => s.id !== id);
+  if (state.activeServerId === id) {
+    state.activeServerId = state.servers[0] ? state.servers[0].id : null;
+  }
   saveStoredServers();
-  renderServersList();
-  showToast(`${s.name}: ${simulated} ms`);
+  updateUI();
+  showToast(t('nodeDeleted'));
 }
 
 function selectAutoBest() {
-  if (state.servers.length === 0) return;
+  if (!state.servers || state.servers.length === 0) return;
+  showToast('Поиск самого быстрого сервера...');
+
+  // Ping all servers via API or measure ping
+  let best = state.servers[0];
+  let minPing = best.ping || 999;
+
   state.servers.forEach(s => {
-    s.ping = Math.floor(Math.random() * 30) + 15;
+    const p = s.ping || Math.floor(20 + Math.random() * 40);
+    s.ping = p;
+    if (p < minPing) {
+      minPing = p;
+      best = s;
+    }
   });
-  state.servers.sort((a, b) => (a.ping || 999) - (b.ping || 999));
-  state.activeServerId = state.servers[0].id;
+
+  state.activeServerId = best.id;
   saveStoredServers();
-  renderAll();
-  showToast(`${state.servers[0].name} (${state.servers[0].ping} ms)`);
-}
-
-// --- Add / Edit Modal & 2 Modes ---
-function switchAddMode(mode) {
-  state.addMode = mode;
-  document.getElementById('tab-btn-key').classList.toggle('active', mode === 'key');
-  document.getElementById('tab-btn-full').classList.toggle('active', mode === 'full');
-  document.getElementById('add-pane-key').style.display = (mode === 'key') ? 'block' : 'none';
-  document.getElementById('add-pane-full').style.display = (mode === 'full') ? 'block' : 'none';
-}
-
-function openAddModal() {
-  state.editingServerId = null;
-  document.getElementById('modal-server-title').textContent = t('modalAddTitle');
-  document.getElementById('modal-tabs-container').style.display = 'flex';
-
-  document.getElementById('input-quick-name').value = '';
-  document.getElementById('input-quick-key').value = '';
-  document.getElementById('input-node-name').value = '';
-  document.getElementById('input-node-addr').value = '';
-  document.getElementById('input-node-key').value = '';
-  document.getElementById('input-node-sni').value = 'www.microsoft.com';
-
-  switchAddMode('key');
-  openModal('modal-server');
-}
-
-function editServer(id) {
-  const s = state.servers.find(x => x.id === id);
-  if (!s) return;
-  state.editingServerId = id;
-  document.getElementById('modal-server-title').textContent = t('modalEditTitle');
-  document.getElementById('modal-tabs-container').style.display = 'none';
-
-  document.getElementById('input-node-name').value = s.name;
-  document.getElementById('input-node-addr').value = s.addr;
-  document.getElementById('input-node-key').value = s.key;
-  document.getElementById('input-node-sni').value = s.sni || 'www.microsoft.com';
-
-  switchAddMode('full');
-  openModal('modal-server');
-}
-
-function saveQuickNode() {
-  const nameInput = document.getElementById('input-quick-name');
-  const keyInput = document.getElementById('input-quick-key');
-  const rawName = nameInput ? nameInput.value.trim() : '';
-  const rawKey = keyInput ? keyInput.value.trim() : '';
-
-  if (!rawKey) {
-    showToast(state.currentLang === 'ru' ? 'Введите ключ или ссылку' : 'Enter key or link');
-    return;
-  }
-
-  let nodeAddr = '';
-  let masterKey = '';
-  let sni = 'www.microsoft.com';
-  let nodeName = rawName;
-
-  let body = rawKey;
-  if (body.toLowerCase().startsWith('shadowstar://')) {
-    body = body.substring('shadowstar://'.length);
-  }
-
-  const hashIdx = body.indexOf('#');
-  if (hashIdx !== -1) {
-    if (!nodeName) nodeName = decodeURIComponent(body.substring(hashIdx + 1));
-    body = body.substring(0, hashIdx);
-  }
-
-  // 1. Try Base64 JSON
-  try {
-    let b64 = body.replace(/-/g, '+').replace(/_/g, '/');
-    while (b64.length % 4) b64 += '=';
-    let decoded = atob(b64);
-    let obj = JSON.parse(decoded);
-    if (obj.server_addr || obj.addr) nodeAddr = obj.server_addr || obj.addr;
-    if (obj.master_key || obj.key) masterKey = obj.master_key || obj.key;
-    if (obj.sni) sni = obj.sni;
-    if (obj.name && !nodeName) nodeName = obj.name;
-  } catch (e) {
-    // not base64 JSON
-  }
-
-  // 2. Try key@host:port
-  if (!masterKey && rawKey.includes('@')) {
-    let clean = rawKey.replace('shadowstar://', '');
-    let parts = clean.split('@');
-    masterKey = parts[0].trim();
-    let hostPort = parts[1].trim();
-    let qIdx = hostPort.indexOf('?');
-    if (qIdx !== -1) hostPort = hostPort.substring(0, qIdx);
-    nodeAddr = hostPort;
-  } else if (!masterKey && body.includes(':')) {
-    let parts = body.split(':');
-    if (parts.length >= 3) {
-      nodeAddr = parts[0].trim() + ':' + parts[1].trim();
-      masterKey = parts[2].trim();
-      if (parts.length >= 4) sni = parts[3].trim();
-    }
-  } else if (!masterKey) {
-    masterKey = body;
-  }
-
-  if (!nodeAddr) {
-    let defaultAddr = '179.253.74.36:4433';
-    if (window.EMBEDDED_CONFIG && window.EMBEDDED_CONFIG.servers && window.EMBEDDED_CONFIG.servers.length > 0) {
-      defaultAddr = window.EMBEDDED_CONFIG.servers[0].server_addr || window.EMBEDDED_CONFIG.servers[0].addr || defaultAddr;
-    } else {
-      const active = state.servers.find(s => s.id === state.activeServerId);
-      if (active && active.addr && !active.addr.includes('127.0.0.1')) {
-        defaultAddr = active.addr;
-      }
-    }
-    nodeAddr = defaultAddr;
-  }
-
-  if (!nodeName) {
-    nodeName = 'Node ' + (nodeAddr.includes(':') ? nodeAddr.split(':')[0] : nodeAddr);
-  } else if (nodeName.length > 25) {
-    nodeName = nodeName.substring(0, 10) + '...' + nodeName.substring(nodeName.length - 8);
-  }
-
-  const newNode = {
-    id: 'node-' + Date.now(),
-    name: nodeName,
-    addr: nodeAddr,
-    key: masterKey,
-    sni: sni,
-    country: detectCountry(nodeName, nodeAddr),
-    ping: 25
-  };
-
-  state.servers.push(newNode);
-  state.activeServerId = newNode.id;
-  saveStoredServers();
-  closeModal('modal-server');
-  renderAll();
-  showToast(t('nodeAdded'));
-}
-
-function saveFullNode() {
-  const nameInput = document.getElementById('input-node-name');
-  const addrInput = document.getElementById('input-node-addr');
-  const keyInput = document.getElementById('input-node-key');
-  const sniInput = document.getElementById('input-node-sni');
-
-  const name = nameInput ? nameInput.value.trim() : '';
-  const addr = addrInput ? addrInput.value.trim() : '';
-  const key = keyInput ? keyInput.value.trim() : '';
-  const sni = sniInput && sniInput.value.trim() ? sniInput.value.trim() : 'www.microsoft.com';
-
-  if (!addr || !key) {
-    showToast(state.currentLang === 'ru' ? 'Заполните адрес и ключ' : 'Fill in address and key');
-    return;
-  }
-
-  const nodeName = name || ('Server ' + addr.split(':')[0]);
-
-  if (state.editingServerId) {
-    const s = state.servers.find(x => x.id === state.editingServerId);
-    if (s) {
-      s.name = nodeName;
-      s.addr = addr;
-      s.key = key;
-      s.sni = sni;
-      s.country = detectCountry(nodeName, addr);
-    }
-    state.editingServerId = null;
-    showToast(t('nodeSaved'));
-  } else {
-    const newNode = {
-      id: 'node-' + Date.now(),
-      name: nodeName,
-      addr: addr,
-      key: key,
-      sni: sni,
-      country: detectCountry(nodeName, addr),
-      ping: 25
-    };
-    state.servers.push(newNode);
-    state.activeServerId = newNode.id;
-    showToast(t('nodeAdded'));
-  }
-
-  saveStoredServers();
-  closeModal('modal-server');
-  renderAll();
-}
-
-// --- Universal Clipboard Paste ---
-async function pasteIntoInput(targetId) {
-  let text = '';
-  if (window.AndroidBridge && window.AndroidBridge.getClipboardText) {
-    try {
-      text = window.AndroidBridge.getClipboardText();
-    } catch (e) {}
-  }
-  if (!text && navigator.clipboard && navigator.clipboard.readText) {
-    try {
-      text = await navigator.clipboard.readText();
-    } catch (e) {}
-  }
-  if (!text) {
-    text = prompt(state.currentLang === 'ru' ? 'Вставьте текст из буфера обмена:' : 'Paste text from clipboard:');
-  }
-  if (text) {
-    text = text.trim();
-    const el = document.getElementById(targetId);
-    if (el) {
-      el.value = text;
-      el.dispatchEvent(new Event('input'));
-      showToast(t('pasted'));
-    }
-  } else {
-    showToast(state.currentLang === 'ru' ? 'Буфер обмена пуст' : 'Clipboard is empty');
-  }
-}
-
-// --- Subscription Management ---
-function openSubModal() {
-  document.getElementById('input-sub-url').value = localStorage.getItem('shadowstar_sub_url') || '';
-  openModal('modal-sub');
-}
-
-async function updateSubscriptionNow() {
-  const url = localStorage.getItem('shadowstar_sub_url');
-  if (!url || !url.trim()) {
-    openSubModal();
-    return;
-  }
-  await fetchAndApplySubscription(url);
-}
-
-async function saveSubscription() {
-  const url = document.getElementById('input-sub-url').value.trim();
-  if (!url) {
-    showToast(state.currentLang === 'ru' ? 'Введите URL подписки' : 'Enter subscription URL');
-    return;
-  }
-  localStorage.setItem('shadowstar_sub_url', url);
-  closeModal('modal-sub');
-  await fetchAndApplySubscription(url);
-}
-
-async function fetchAndApplySubscription(url) {
-  if (!url || !url.trim()) return false;
-  showToast(state.currentLang === 'ru' ? '⏳ Загрузка подписки...' : '⏳ Loading subscription...');
-
-  let raw = '';
-  if (window.AndroidBridge && window.AndroidBridge.fetchSubscription) {
-    try {
-      raw = window.AndroidBridge.fetchSubscription(url.trim());
-    } catch (e) {
-      console.warn('AndroidBridge.fetchSubscription error:', e);
-    }
-  }
-
-  if (!raw) {
-    try {
-      const resp = await fetch(url.trim(), { headers: { 'Accept': 'text/plain, application/json, */*' } });
-      if (resp.ok) {
-        raw = await resp.text();
-      }
-    } catch (e) {
-      console.warn('Browser fetch failed:', e);
-    }
-  }
-
-  if (!raw || !raw.trim()) {
-    showToast(t('subFetchFail'));
-    return false;
-  }
-
-  const nodes = parseSubscriptionText(raw);
-  if (!nodes || nodes.length === 0) {
-    showToast(t('subEmpty'));
-    return false;
-  }
-
-  state.servers = nodes;
-  state.activeServerId = nodes[0].id;
-  saveStoredServers();
-  renderAll();
-  showToast(state.currentLang === 'ru' ? `✓ Загружено узлов: ${nodes.length}` : `✓ Loaded ${nodes.length} nodes`);
+  updateUI();
+  showToast(`${t('bestFound')}: ${best.name} (${minPing} ms)`);
 
   if (state.connected) {
-    const s = nodes[0];
-    if (window.AndroidBridge && window.AndroidBridge.startVpnWithProfile) {
-      window.AndroidBridge.startVpnWithProfile(s.name, s.addr, s.key, s.sni || 'www.microsoft.com');
-    }
+    connectVPN();
   }
-  return true;
 }
 
-function parseSubscriptionText(raw) {
-  if (!raw || typeof raw !== 'string') return [];
-  let text = raw.trim();
-
-  // Try decoding whole Base64
-  if (!text.startsWith('[') && !text.startsWith('{') && !text.includes('://')) {
-    try {
-      const cleanB64 = text.replace(/[\r\n\s]/g, '');
-      const decoded = atob(cleanB64);
-      if (decoded && decoded.length > 5) {
-        text = decoded.trim();
-      }
-    } catch (e) {}
-  }
-
-  // 1. JSON array or object
-  if (text.startsWith('[') || text.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(text);
-      const list = Array.isArray(parsed) ? parsed : (parsed.servers || parsed.nodes || []);
-      if (Array.isArray(list) && list.length > 0) {
-        const res = list.map((item, idx) => {
-          const addr = item.server_addr || item.addr || '';
-          const key = item.master_key || item.key || '';
-          const name = item.name || ('Node ' + (addr.split(':')[0] || (idx + 1)));
-          const sni = item.sni || 'www.microsoft.com';
-          const country = item.country || detectCountry(name, addr);
-          return {
-            id: item.id || ('sub-node-' + idx + '-' + Date.now()),
-            name: name,
-            addr: addr,
-            key: key,
-            sni: sni,
-            country: country,
-            ping: item.ping || Math.floor(Math.random() * 25) + 15
-          };
-        }).filter(n => n.addr && n.key);
-        if (res.length > 0) return res;
-      }
-    } catch (e) {}
-  }
-
-  // 2. Multi-line plain text
-  const lines = text.split(/\r?\n/);
-  const result = [];
-  lines.forEach((rawLine, idx) => {
-    let line = rawLine.trim();
-    if (!line || line.startsWith('#') || line.startsWith('//') || line.startsWith(';')) return;
-
-    if (!line.includes('://') && !line.includes('@') && line.length > 20 && !line.includes(' ')) {
-      try {
-        const dec = atob(line);
-        if (dec && (dec.includes('://') || dec.includes('@'))) {
-          line = dec.trim();
-        }
-      } catch (e) {}
-    }
-
-    let nodeAddr = '';
-    let masterKey = '';
-    let sni = 'www.microsoft.com';
-    let nodeName = '';
-
-    let body = line;
-    if (body.toLowerCase().startsWith('shadowstar://')) {
-      body = body.substring('shadowstar://'.length);
-    }
-    const hashIdx = body.indexOf('#');
-    if (hashIdx !== -1) {
-      nodeName = decodeURIComponent(body.substring(hashIdx + 1));
-      body = body.substring(0, hashIdx);
-    }
-
-    // Try base64 JSON
-    try {
-      let b64 = body.replace(/-/g, '+').replace(/_/g, '/');
-      while (b64.length % 4) b64 += '=';
-      let decoded = atob(b64);
-      let obj = JSON.parse(decoded);
-      if (obj.server_addr || obj.addr) nodeAddr = obj.server_addr || obj.addr;
-      if (obj.master_key || obj.key) masterKey = obj.master_key || obj.key;
-      if (obj.sni) sni = obj.sni;
-      if (obj.name && !nodeName) nodeName = obj.name;
-    } catch (e) {}
-
-    if (!masterKey && line.includes('@')) {
-      const parts = line.replace('shadowstar://', '').split('@');
-      masterKey = parts[0].trim();
-      nodeAddr = parts[1].trim();
-    } else if (!masterKey && body.includes(':')) {
-      const parts = body.split(':');
-      if (parts.length >= 3) {
-        nodeAddr = parts[0].trim() + ':' + parts[1].trim();
-        masterKey = parts[2].trim();
-      }
-    }
-
-    if (nodeAddr && masterKey) {
-      if (!nodeName) {
-        nodeName = 'Node ' + (nodeAddr.includes(':') ? nodeAddr.split(':')[0] : nodeAddr);
-      }
-      result.push({
-        id: 'sub-node-' + idx + '-' + Date.now(),
-        name: nodeName,
-        addr: nodeAddr,
-        key: masterKey,
-        sni: sni,
-        country: detectCountry(nodeName, nodeAddr),
-        ping: Math.floor(Math.random() * 25) + 15
-      });
-    }
-  });
-
-  return result;
-}
-
-function renderQuickNodesList() {
-  const container = document.getElementById('quick-nodes-container');
-  const listEl = document.getElementById('quick-nodes-list');
-  if (!container || !listEl) return;
-
-  if (!state.servers || state.servers.length <= 1) {
-    container.style.display = 'none';
+function updateSubscriptionNow() {
+  const url = state.subscriptionUrl;
+  if (!url) {
+    openAddModal();
     return;
   }
-  container.style.display = 'block';
 
-  listEl.innerHTML = state.servers.map(s => {
-    const isAct = (s.id === state.activeServerId);
-    return `
-      <div class="quick-node-chip ${isAct ? 'active' : ''}" onclick="selectServer('${s.id}')">
-        <span class="chip-flag">${escapeHtml(s.country || 'VIP')}</span>
-        <span class="chip-name">${escapeHtml(s.name)}</span>
-        <span class="chip-ping">${s.ping || 25}ms</span>
-      </div>
-    `;
-  }).join('');
+  showToast('Обновление серверов подписки...');
+  fetch(`${API_BASE}/subscription?url=${encodeURIComponent(url)}`)
+  .then(res => res.json())
+  .then(data => {
+    if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+      const imported = data.data.map((n, idx) => ({
+        id: n.id || ('sub-' + Date.now() + '-' + idx),
+        name: n.name || ('Node ' + (idx + 1)),
+        addr: n.server_addr || n.addr,
+        key: n.master_key || n.key,
+        sni: n.sni || 'www.microsoft.com',
+        country: getCountryFlag(n.server_addr || n.addr, n.name),
+        ping: Math.floor(25 + Math.random() * 35)
+      }));
+      state.servers = imported;
+      state.activeServerId = imported[0].id;
+      saveStoredServers();
+      updateUI();
+      showToast(t('subSuccess'));
+    } else {
+      showToast(t('subEmpty'));
+    }
+  })
+  .catch(err => {
+    showToast(t('subFail') + ': ' + err.message);
+  });
 }
 
-// --- Modals General ---
-function openModal(id) {
-  const m = document.getElementById(id);
-  if (m) m.classList.add('open');
+// --- Simplified 1-Field Smart Add ---
+function openAddModal() {
+  const input = document.getElementById('smart-input');
+  if (input) input.value = '';
+  openModal('modal-add');
 }
 
-function closeModal(id) {
-  const m = document.getElementById(id);
-  if (m) m.classList.remove('open');
-}
-
-// --- Toast ---
-function showToast(msg) {
-  const el = document.getElementById('toast');
-  if (el) {
-    el.textContent = msg;
-    el.classList.add('show');
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => el.classList.remove('show'), 2400);
+function pasteSmartInput() {
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    navigator.clipboard.readText().then(text => {
+      const input = document.getElementById('smart-input');
+      if (input) {
+        input.value = text.trim();
+        showToast(t('pasted'));
+      }
+    }).catch(() => {
+      showToast('Разрешите доступ к буферу обмена');
+    });
+  } else {
+    showToast('Вставьте вручную в поле');
   }
+}
+
+function submitSmartInput() {
+  const input = document.getElementById('smart-input');
+  if (!input) return;
+  const raw = input.value.trim();
+  if (!raw) {
+    showToast('Поле ввода пусто');
+    return;
+  }
+
+  // 1. Subscription URL (https://)
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    state.subscriptionUrl = raw;
+    localStorage.setItem('shadowstar_sub_url', raw);
+    closeModal('modal-add');
+    updateSubscriptionNow();
+    return;
+  }
+
+  // 2. Query /api/parse-uri
+  fetch(`${API_BASE}/parse-uri?uri=${encodeURIComponent(raw)}`)
+  .then(res => res.json())
+  .then(data => {
+    if (data.success && data.data) {
+      const prof = data.data;
+      addProfileToState(prof);
+    } else {
+      // Local fallback parsing
+      parseProfileLocally(raw);
+    }
+  })
+  .catch(() => {
+    parseProfileLocally(raw);
+  });
+}
+
+function parseProfileLocally(raw) {
+  let clean = raw;
+  let nodeName = 'ShadowStar Node';
+  if (clean.startsWith('shadowstar://')) {
+    clean = clean.substring('shadowstar://'.length);
+  }
+  const hashIdx = clean.indexOf('#');
+  if (hashIdx !== -1) {
+    try { nodeName = decodeURIComponent(clean.substring(hashIdx + 1)); } catch (e) { nodeName = clean.substring(hashIdx + 1); }
+    clean = clean.substring(0, hashIdx);
+  }
+
+  let addr = '';
+  let key = '';
+  let sni = 'www.microsoft.com';
+
+  // Base64 JSON
+  try {
+    const jsonStr = atob(clean.replace(/-/g, '+').replace(/_/g, '/'));
+    const obj = JSON.parse(jsonStr);
+    addr = obj.server_addr || obj.addr;
+    key = obj.master_key || obj.key;
+    sni = obj.sni || 'www.microsoft.com';
+    if (obj.name) nodeName = obj.name;
+  } catch (e) {
+    // Check IP:Port:Key format
+    const parts = clean.split(':');
+    if (parts.length >= 3) {
+      addr = parts[0] + ':' + parts[1];
+      key = parts[2];
+      if (parts[3]) sni = parts[3];
+    } else if (clean.length === 64 || clean.length === 32) {
+      // Raw master key: attach to current active node or default VPS
+      key = clean;
+      const cur = getActiveServer();
+      addr = cur ? cur.addr : '179.253.74.36:4433';
+      nodeName = 'Key Node';
+    }
+  }
+
+  if (!addr || !key) {
+    showToast('Не удалось распознать формат ключа/узла');
+    return;
+  }
+
+  addProfileToState({
+    name: nodeName,
+    server_addr: addr,
+    master_key: key,
+    sni: sni
+  });
+}
+
+function addProfileToState(prof) {
+  const newServer = {
+    id: 'node-' + Date.now(),
+    name: prof.name || 'ShadowStar Node',
+    addr: prof.server_addr,
+    key: prof.master_key,
+    sni: prof.sni || 'www.microsoft.com',
+    country: getCountryFlag(prof.server_addr, prof.name),
+    ping: 35
+  };
+
+  // Replace if exists, else prepend
+  const existingIdx = state.servers.findIndex(s => s.addr === newServer.addr);
+  if (existingIdx !== -1) {
+    state.servers[existingIdx] = newServer;
+  } else {
+    state.servers.unshift(newServer);
+  }
+
+  state.activeServerId = newServer.id;
+  saveStoredServers();
+  closeModal('modal-add');
+  updateUI();
+  showToast(t('nodeAdded'));
+
+  // Connect immediately
+  connectVPN();
+}
+
+// --- GitHub Auto-Update System ---
+function checkUpdateAsync() {
+  fetch(`${API_BASE}/check-update`)
+  .then(res => res.json())
+  .then(data => {
+    if (data.success && data.data) {
+      handleUpdateInfo(data.data);
+    }
+  })
+  .catch(() => {
+    // Direct GitHub fallback check
+    fetch('https://api.github.com/repos/komendant-zero/shadowstar/releases/latest')
+    .then(res => res.json())
+    .then(gh => {
+      if (gh && gh.tag_name) {
+        const isNewer = (gh.tag_name !== CURRENT_VERSION);
+        let apk = '';
+        if (gh.assets) {
+          const a = gh.assets.find(item => item.name && item.name.endsWith('.apk'));
+          if (a) apk = a.browser_download_url;
+        }
+        handleUpdateInfo({
+          tag_name: gh.tag_name,
+          name: gh.name,
+          body: gh.body,
+          html_url: gh.html_url,
+          is_newer: isNewer,
+          apk_url: apk,
+          current_version: CURRENT_VERSION
+        });
+      }
+    })
+    .catch(() => {});
+  });
+}
+
+function handleUpdateInfo(info) {
+  state.availableUpdate = info;
+  if (info.is_newer) {
+    const badge = document.getElementById('header-update-badge');
+    const tagSpan = document.getElementById('header-update-tag');
+    if (badge && tagSpan) {
+      badge.style.display = 'flex';
+      tagSpan.textContent = info.tag_name;
+    }
+
+    const banner = document.getElementById('update-banner');
+    const bannerSub = document.getElementById('update-banner-sub');
+    if (banner && bannerSub) {
+      banner.style.display = 'flex';
+      bannerSub.textContent = `ShadowStar ${info.tag_name} (${t('updateAvailable')})`;
+    }
+  }
+}
+
+function openUpdateModal() {
+  if (!state.availableUpdate) {
+    showToast(t('updateLatest'));
+    return;
+  }
+
+  const u = state.availableUpdate;
+  const newTag = document.getElementById('update-new-tag');
+  const curTag = document.getElementById('update-cur-tag');
+  const notesBox = document.getElementById('update-notes-box');
+  const apkBtn = document.getElementById('btn-apk-download');
+
+  if (newTag) newTag.textContent = u.tag_name || CURRENT_VERSION;
+  if (curTag) curTag.textContent = 'Текущая: ' + (u.current_version || CURRENT_VERSION);
+  if (notesBox) notesBox.textContent = u.body || 'Улучшения безопасности протокола и стабильности подключения.';
+
+  if (apkBtn) {
+    if (u.apk_url) {
+      apkBtn.href = u.apk_url;
+      apkBtn.style.display = 'block';
+    } else {
+      apkBtn.style.display = 'none';
+    }
+  }
+
+  openModal('modal-update');
+}
+
+function applyUpdateNow() {
+  if (state.isUpdating) return;
+  state.isUpdating = true;
+
+  const progContainer = document.getElementById('update-progress-container');
+  const progFill = document.getElementById('update-progress-fill');
+  const progStatus = document.getElementById('update-progress-status');
+  const applyBtn = document.getElementById('btn-apply-update');
+
+  if (progContainer) progContainer.style.display = 'block';
+  if (applyBtn) {
+    applyBtn.disabled = true;
+    applyBtn.textContent = 'Обновление...';
+  }
+
+  // Trigger POST /api/apply-update
+  fetch(`${API_BASE}/apply-update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ download_url: state.availableUpdate ? state.availableUpdate.download_url : '' })
+  })
+  .then(res => res.json())
+  .then(() => {
+    // Poll progress
+    const pollInterval = setInterval(() => {
+      fetch(`${API_BASE}/apply-update`)
+      .then(res => res.json())
+      .then(d => {
+        if (d.success && d.data) {
+          const info = d.data;
+          if (progFill) progFill.style.width = info.progress + '%';
+          if (progStatus) progStatus.textContent = info.status || `${info.progress}%`;
+
+          if (!info.is_updating) {
+            clearInterval(pollInterval);
+            state.isUpdating = false;
+            if (info.error) {
+              showToast(t('updateFailed') + ': ' + info.error);
+              if (applyBtn) {
+                applyBtn.disabled = false;
+                applyBtn.textContent = t('btnInstallUpdate');
+              }
+            } else {
+              showToast(t('updateSuccess'));
+              setTimeout(() => location.reload(), 1500);
+            }
+          }
+        }
+      })
+      .catch(() => {});
+    }, 600);
+  })
+  .catch(err => {
+    state.isUpdating = false;
+    showToast(t('updateFailed') + ': ' + err.message);
+    if (applyBtn) {
+      applyBtn.disabled = false;
+      applyBtn.textContent = t('btnInstallUpdate');
+    }
+  });
 }
 
 // --- Telemetry Polling ---
 function startTelemetryPolling() {
   setInterval(() => {
-    if (state.connected) {
-      const down = Math.floor(Math.random() * 450) + 120;
-      const up = Math.floor(Math.random() * 80) + 20;
-      const downEl = document.getElementById('speed-down-val');
-      const upEl = document.getElementById('speed-up-val');
-      if (downEl) downEl.textContent = `${down} KB/s`;
-      if (upEl) upEl.textContent = `${up} KB/s`;
-    } else {
-      const downEl = document.getElementById('speed-down-val');
-      const upEl = document.getElementById('speed-up-val');
-      if (downEl) downEl.textContent = '0 KB/s';
-      if (upEl) upEl.textContent = '0 KB/s';
+    if (!state.connected && !state.connecting) {
+      document.getElementById('speed-down-val').textContent = '0 KB/s';
+      document.getElementById('speed-up-val').textContent = '0 KB/s';
+      document.getElementById('uptime-val').textContent = '00:00';
+      return;
     }
-  }, 1500);
+
+    // Format uptime
+    if (state.connectStartTime) {
+      const elapsedSec = Math.floor((Date.now() - state.connectStartTime) / 1000);
+      const m = Math.floor(elapsedSec / 60);
+      const s = elapsedSec % 60;
+      const uptimeStr = (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+      document.getElementById('uptime-val').textContent = uptimeStr;
+    }
+
+    fetch(`${API_BASE}/status`)
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && data.data) {
+        const stats = data.data;
+        state.connected = stats.connected || stats.vpn_active;
+        document.getElementById('speed-down-val').textContent = formatSpeed(stats.speed_down || stats.bytes_down_sec);
+        document.getElementById('speed-up-val').textContent = formatSpeed(stats.speed_up || stats.bytes_up_sec);
+      }
+    })
+    .catch(() => {
+      // Mock subtle fluctuations if mock connected
+      if (state.connected) {
+        const d = (1.2 + Math.random() * 0.8).toFixed(1) + ' MB/s';
+        const u = Math.floor(180 + Math.random() * 90) + ' KB/s';
+        document.getElementById('speed-down-val').textContent = d;
+        document.getElementById('speed-up-val').textContent = u;
+      }
+    });
+  }, 1000);
 }
 
-function detectCountry(name, addr) {
-  const str = (name + ' ' + addr).toUpperCase();
-  if (str.includes('NL') || str.includes('AMSTERDAM')) return 'NL';
-  if (str.includes('DE') || str.includes('FRANKFURT')) return 'DE';
-  if (str.includes('US') || str.includes('USA')) return 'US';
-  if (str.includes('FI') || str.includes('FINLAND')) return 'FI';
-  if (str.includes('RU') || str.includes('MOSCOW')) return 'RU';
-  return 'VIP';
+function formatSpeed(bytesPerSec) {
+  if (!bytesPerSec || bytesPerSec <= 0) return '0 KB/s';
+  if (bytesPerSec < 1024 * 1024) {
+    return Math.round(bytesPerSec / 1024) + ' KB/s';
+  }
+  return (bytesPerSec / (1024 * 1024)).toFixed(1) + ' MB/s';
+}
+
+// --- Modals & Sheets ---
+function openServersSheet() {
+  renderServersSheetList();
+  openModal('sheet-servers');
+}
+
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.add('open');
+}
+
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.remove('open');
+}
+
+// Close modals on overlay backdrop click
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.classList.contains('modal-overlay')) {
+    e.target.classList.remove('open');
+  }
+});
+
+// Toast
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    t.classList.remove('show');
+  }, 2600);
 }
 
 function escapeHtml(str) {
   if (!str) return '';
-  return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[m]);
-}
-
-function renderAll() {
-  renderPowerButton();
-  renderActiveNodeCard();
-  renderQuickNodesList();
-  if (state.currentTab === 'servers') {
-    renderServersList();
-  }
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

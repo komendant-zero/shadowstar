@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	CurrentVersion = "v1.4.1"
+	CurrentVersion = "v1.4.2"
 	DefaultRepo    = "komendant-zero/shadowstar"
 )
 
@@ -30,6 +30,7 @@ type ReleaseInfo struct {
 	PublishedAt string `json:"published_at"`
 	IsNewer     bool   `json:"is_newer"`
 	DownloadURL string `json:"download_url"`
+	APKURL      string `json:"apk_url,omitempty"`
 }
 
 type ghReleaseResponse struct {
@@ -79,19 +80,32 @@ func CheckUpdate(repo string) (*ReleaseInfo, error) {
 
 	// Find best asset for current OS/Arch
 	downloadURL := ""
+	apkURL := ""
 	for _, a := range ghResp.Assets {
 		name := strings.ToLower(a.Name)
+		if strings.HasSuffix(name, ".apk") {
+			apkURL = a.BrowserDownloadURL
+		}
 		if runtime.GOOS == "windows" {
 			if strings.HasSuffix(name, "-windows-amd64.zip") || (strings.Contains(name, "windows") && strings.HasSuffix(name, ".zip")) {
 				downloadURL = a.BrowserDownloadURL
-				break
 			} else if strings.HasSuffix(name, ".exe") && !strings.Contains(name, "server") && !strings.Contains(name, "mobile") {
+				if downloadURL == "" {
+					downloadURL = a.BrowserDownloadURL
+				}
+			}
+		} else if runtime.GOOS == "linux" {
+			if strings.Contains(name, "linux") && strings.Contains(name, runtime.GOARCH) && strings.HasSuffix(name, ".tar.gz") {
 				downloadURL = a.BrowserDownloadURL
 			}
 		}
 	}
 	if downloadURL == "" {
-		downloadURL = ghResp.HTMLURL
+		if apkURL != "" {
+			downloadURL = apkURL
+		} else {
+			downloadURL = ghResp.HTMLURL
+		}
 	}
 
 	return &ReleaseInfo{
@@ -102,6 +116,7 @@ func CheckUpdate(repo string) (*ReleaseInfo, error) {
 		PublishedAt: ghResp.PublishedAt.Format("02.01.2006"),
 		IsNewer:     isNewer,
 		DownloadURL: downloadURL,
+		APKURL:      apkURL,
 	}, nil
 }
 

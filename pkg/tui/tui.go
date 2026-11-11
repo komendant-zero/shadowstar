@@ -13,6 +13,7 @@ import (
 	"github.com/shadowstar/shadowstar/pkg/config"
 	"github.com/shadowstar/shadowstar/pkg/i18n"
 	"github.com/shadowstar/shadowstar/pkg/sysproxy"
+	"github.com/shadowstar/shadowstar/pkg/updater"
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 	ModalAddGroup
 	ModalEditGroup
 	ModalDeleteGroup
+	ModalUpdate
 )
 
 type TUI struct {
@@ -47,6 +49,12 @@ type TUI struct {
 	modalError    string
 	toastMsg      string
 	toastTimer    int
+
+	// Update state
+	availableUpdate *updater.ReleaseInfo
+	isUpdatingApp   bool
+	updateProgress  int
+	updateStatus    string
 
 	// Telemetry & metrics
 	stats          client.Stats
@@ -80,6 +88,8 @@ func New(cfgPath string, c *client.Client, cfg *client.Config) *TUI {
 			break
 		}
 	}
+
+	go t.checkAppUpdateAsync()
 
 	return t
 }
@@ -342,6 +352,9 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 		case 'r', 'R':
 			i18n.ToggleLang()
 
+		case 'v', 'V':
+			t.triggerUpdate()
+
 		case '1':
 			t.activeTab = TabServers
 		case '2':
@@ -405,6 +418,27 @@ func (t *TUI) prevGroup() {
 }
 
 func (t *TUI) handleModalKey(key KeyEvent) bool {
+	if t.modal == ModalUpdate {
+		if t.isUpdatingApp {
+			return false
+		}
+		if key.Type == KeyEsc {
+			t.modal = ModalNone
+			t.modalError = ""
+			return false
+		}
+		if key.Type == KeyEnter {
+			if t.availableUpdate != nil && t.availableUpdate.IsNewer {
+				t.startUpdateDownload(t.availableUpdate)
+			} else {
+				t.modal = ModalNone
+				t.modalError = ""
+			}
+			return false
+		}
+		return false
+	}
+
 	if key.Type == KeyEsc {
 		t.modal = ModalNone
 		t.modalInput = ""
@@ -793,6 +827,69 @@ func (t *TUI) selectFastestServer() {
 		_ = t.client.Start()
 	}
 	t.toast(fmt.Sprintf(i18n.T("✓ Выбран самый быстрый: %s (%d ms)", "✓ Selected fastest: %s (%d ms)"), best.Name, best.Ping))
+}
+
+func (t *TUI) checkAppUpdateAsync() {
+	rel, err := updater.CheckUpdate("")
+	if err == nil && rel != nil && rel.IsNewer {
+		t.mu.Lock()
+		t.availableUpdate = rel
+		t.mu.Unlock()
+		t.toast(fmt.Sprintf(i18n.T("★ Доступна версия %s! Нажмите [V] для обновления", "★ Version %s available! Press [V] to update"), rel.TagName))
+	}
+}
+
+func (t *TUI) triggerUpdate() {
+	t.modal = ModalUpdate
+	rel := t.availableUpdate
+
+	if rel == nil {
+		t.toast(i18n.T("Проверка обновлений на GitHub...", "Checking GitHub for updates..."))
+		go func() {
+			checkRel, err := updater.CheckUpdate("")
+			t.mu.Lock()
+			defer t.mu.Unlock()
+			if err != nil {
+				t.modalError = fmt.Sprintf("Ошибка: %v", err)
+				return
+			}
+			t.availableUpdate = checkRel
+			if !checkRel.IsNewer {
+				t.modalError = i18n.T("У вас уже установлена последняя версия!", "You are already using the latest version!")
+			}
+		}()
+		return
+	}
+
+	if !rel.IsNewer {
+		t.modalError = i18n.T("У вас уже установлена последняя версия!", "You are already using the latest version!")
+		return
+	}
+}
+
+func (t *TUI) startUpdateDownload(rel *updater.ReleaseInfo) {
+	t.isUpdatingApp = true
+	t.updateProgress = 5
+	t.updateStatus = i18n.T("Подключение к GitHub...", "Connecting to GitHub...")
+	t.modalError = ""
+
+	go func() {
+		err := updater.DownloadAndApplyUpdate(rel.DownloadURL, func(pct int, status string) {
+			t.mu.Lock()
+			t.updateProgress = pct
+			t.updateStatus = status
+			t.mu.Unlock()
+		})
+
+		t.mu.Lock()
+		t.isUpdatingApp = false
+		if err != nil {
+			t.modalError = fmt.Sprintf("Ошибка: %v", err)
+		} else {
+			t.updateStatus = i18n.T("Обновление завершено! Перезапуск...", "Update complete! Restarting...")
+		}
+		t.mu.Unlock()
+	}()
 }
 
 func (t *TUI) toast(msg string) {

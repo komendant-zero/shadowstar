@@ -4,10 +4,10 @@
   "subscription_url": "",
   "servers": [
     {
-      "id": "shadowstar-demo-node",
-      "name": "Demo Node (NL Amsterdam)",
-      "server_addr": "your-server-ip.com:4433",
-      "master_key": "YOUR_32_BYTE_HEX_MASTER_KEY_HERE_00000000000000000000000000000000",
+      "id": "shadowstar-179.253.74.36",
+      "name": "VPS-179.253.74.36 (NL Amsterdam)",
+      "server_addr": "179.253.74.36:4433",
+      "master_key": "01d7b18d323cbb7a771ec7baffd331cff73f188b620f7d56a3dfc22c6cf535b2",
       "sni": "www.microsoft.com",
       "enable_chunker": true,
       "padding_len": 64,
@@ -16,5 +16,5 @@
       "country": "NL"
     }
   ],
-  "active_id": "shadowstar-demo-node"
+  "active_id": "shadowstar-179.253.74.36"
 }

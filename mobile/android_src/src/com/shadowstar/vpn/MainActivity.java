@@ -157,19 +157,30 @@ public class MainActivity extends Activity {
         return "";
     }
 
+    public static boolean isRealServer(String addr, String key) {
+        if (addr == null || addr.trim().isEmpty() || key == null || key.trim().isEmpty()) return false;
+        String a = addr.toLowerCase();
+        String k = key.toUpperCase();
+        return !a.contains("your-server-ip.com") && !a.contains("demo-node") && !k.contains("YOUR_32_BYTE_HEX_MASTER_KEY");
+    }
+
     private void initDefaultProfileFromAsset() {
         try {
             // First attempt: check persistent storage (survives app reinstallation)
             String persistentServers = loadPersistentServers();
             if (persistentServers != null && !persistentServers.isEmpty()) {
                 org.json.JSONArray arr = new org.json.JSONArray(persistentServers);
-                if (arr.length() > 0) {
-                    org.json.JSONObject first = arr.getJSONObject(0);
-                    lastProfileName = first.optString("name", "ShadowStar Node");
-                    lastProfileAddr = first.optString("addr", first.optString("server_addr", "demo-node.shadowstar.org:4433"));
-                    lastProfileKey = first.optString("key", first.optString("master_key", "shadowstar-demo-key-v1"));
-                    lastProfileSni = first.optString("sni", "www.microsoft.com");
-                    return;
+                for (int i = 0; i < arr.length(); i++) {
+                    org.json.JSONObject obj = arr.getJSONObject(i);
+                    String addr = obj.optString("addr", obj.optString("server_addr", ""));
+                    String key = obj.optString("key", obj.optString("master_key", ""));
+                    if (isRealServer(addr, key)) {
+                        lastProfileName = obj.optString("name", "ShadowStar Node");
+                        lastProfileAddr = addr;
+                        lastProfileKey = key;
+                        lastProfileSni = obj.optString("sni", "www.microsoft.com");
+                        return;
+                    }
                 }
             }
 
@@ -178,15 +189,28 @@ public class MainActivity extends Activity {
             if (cfg != null && !cfg.isEmpty()) {
                 org.json.JSONObject obj = new org.json.JSONObject(cfg);
                 org.json.JSONArray servers = obj.optJSONArray("servers");
-                if (servers != null && servers.length() > 0) {
-                    org.json.JSONObject first = servers.getJSONObject(0);
-                    lastProfileName = first.optString("name", "ShadowStar Node");
-                    lastProfileAddr = first.optString("server_addr", "demo-node.shadowstar.org:4433");
-                    lastProfileKey = first.optString("master_key", "shadowstar-demo-key-v1");
-                    lastProfileSni = first.optString("sni", "www.microsoft.com");
+                if (servers != null) {
+                    for (int i = 0; i < servers.length(); i++) {
+                        org.json.JSONObject s = servers.getJSONObject(i);
+                        String addr = s.optString("server_addr", s.optString("addr", ""));
+                        String key = s.optString("master_key", s.optString("key", ""));
+                        if (isRealServer(addr, key)) {
+                            lastProfileName = s.optString("name", "ShadowStar Node");
+                            lastProfileAddr = addr;
+                            lastProfileKey = key;
+                            lastProfileSni = s.optString("sni", "www.microsoft.com");
+                            return;
+                        }
+                    }
                 }
             }
         } catch (Throwable ignored) {}
+
+        // Fallback default VPS node
+        lastProfileName = "VPS-179.253.74.36 (NL Amsterdam)";
+        lastProfileAddr = "179.253.74.36:4433";
+        lastProfileKey = "01d7b18d323cbb7a771ec7baffd331cff73f188b620f7d56a3dfc22c6cf535b2";
+        lastProfileSni = "www.microsoft.com";
     }
 
     public String loadAsset(String name) {
@@ -231,7 +255,10 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             try {
                 if (daemonProcess != null) {
-                    try { daemonProcess.destroy(); } catch (Throwable ignored) {}
+                    try {
+                        daemonProcess.destroyForcibly();
+                        daemonProcess.waitFor(500, TimeUnit.MILLISECONDS);
+                    } catch (Throwable ignored) {}
                     daemonProcess = null;
                 }
 
@@ -306,7 +333,10 @@ public class MainActivity extends Activity {
 
     public void stopVpnService() {
         if (daemonProcess != null) {
-            try { daemonProcess.destroy(); } catch (Throwable ignored) {}
+            try {
+                daemonProcess.destroyForcibly();
+                daemonProcess.waitFor(300, TimeUnit.MILLISECONDS);
+            } catch (Throwable ignored) {}
             daemonProcess = null;
         }
 
@@ -388,6 +418,39 @@ public class MainActivity extends Activity {
 
         public AndroidBridge(MainActivity activity) {
             this.activity = activity;
+        }
+
+        @JavascriptInterface
+        public void connectVPN(String profileJson) {
+            activity.runOnUiThread(() -> {
+                try {
+                    if (profileJson != null && !profileJson.trim().isEmpty()) {
+                        org.json.JSONObject obj = new org.json.JSONObject(profileJson);
+                        String name = obj.optString("name", "ShadowStar Node");
+                        String addr = obj.optString("server_addr", obj.optString("addr", ""));
+                        String key = obj.optString("master_key", obj.optString("key", ""));
+                        String sni = obj.optString("sni", "www.microsoft.com");
+                        if (isRealServer(addr, key)) {
+                            activity.lastProfileName = name;
+                            activity.lastProfileAddr = addr;
+                            activity.lastProfileKey = key;
+                            activity.lastProfileSni = sni;
+                        }
+                    }
+                } catch (Throwable ignored) {}
+
+                Intent prepare = VpnService.prepare(activity);
+                if (prepare != null) {
+                    activity.startActivityForResult(prepare, VPN_REQUEST_CODE);
+                } else {
+                    activity.launchVpnService();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void disconnectVPN() {
+            activity.runOnUiThread(activity::stopVpnService);
         }
 
         @JavascriptInterface

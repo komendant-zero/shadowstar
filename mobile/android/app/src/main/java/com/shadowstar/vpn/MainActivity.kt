@@ -350,7 +350,7 @@ class MainActivity : ComponentActivity() {
         } else {
             // Default VPS node
             serversList = listOf(
-                ServerItem("node-vps-nl", "ShadowStar VPS (Netherlands)", "179.253.74.36:4433", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "www.microsoft.com", 38)
+                ServerItem("node-vps-nl", "ShadowStar VPS (Netherlands)", "179.253.74.36:4433", "01d7b18d323cbb7a771ec7baffd331cff73f188b620f7d56a3dfc22c6cf535b2", "www.microsoft.com", 38)
             )
         }
     }

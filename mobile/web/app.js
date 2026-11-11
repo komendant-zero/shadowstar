@@ -162,6 +162,38 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+const DEFAULT_VPS_SERVER = {
+  id: 'node-main-vps',
+  name: 'VPS-179.253.74.36 (NL Amsterdam)',
+  addr: '179.253.74.36:4433',
+  key: '01d7b18d323cbb7a771ec7baffd331cff73f188b620f7d56a3dfc22c6cf535b2',
+  sni: 'www.microsoft.com',
+  country: '🇳🇱',
+  ping: 28
+};
+
+function isRealServer(s) {
+  if (!s) return false;
+  const addr = (s.addr || s.server_addr || '').toLowerCase();
+  const key = (s.key || s.master_key || '').toUpperCase();
+  return addr && !addr.includes('your-server-ip.com') && !addr.includes('demo-node') &&
+         key && !key.includes('YOUR_32_BYTE_HEX_MASTER_KEY') && !key.startsWith('0123456789ABCDEF');
+}
+
+// Android native status listener
+window.onVpnStatusChanged = function(isActive) {
+  state.connected = !!isActive;
+  state.connecting = false;
+  if (isActive) {
+    if (!state.connectStartTime) state.connectStartTime = Date.now();
+    showToast(t('statusOn'));
+  } else {
+    state.connectStartTime = null;
+    showToast(t('statusOff'));
+  }
+  updateUI();
+};
+
 function loadStoredServers() {
   // 1. First check Android persistent storage (survives app reinstallation)
   if (window.AndroidBridge && window.AndroidBridge.loadServersJson) {
@@ -170,7 +202,7 @@ function loadStoredServers() {
       if (bridgeRaw && bridgeRaw.length > 5) {
         const parsed = JSON.parse(bridgeRaw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          state.servers = parsed;
+          state.servers = parsed.filter(isRealServer);
         }
       }
     } catch (e) {}
@@ -181,7 +213,10 @@ function loadStoredServers() {
     const raw = localStorage.getItem('shadowstar_mobile_servers');
     if (raw) {
       try {
-        state.servers = JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          state.servers = parsed.filter(isRealServer);
+        }
       } catch (e) {
         state.servers = [];
       }
@@ -200,32 +235,26 @@ function loadStoredServers() {
 
   const cfgList = embeddedCfg ? (embeddedCfg.servers || embeddedCfg.nodes || []) : [];
   if (cfgList.length > 0 && (!state.servers || state.servers.length === 0)) {
-    state.servers = cfgList.map((n, idx) => ({
-      id: n.id || ('node-' + idx),
-      name: n.name || 'ShadowStar Node',
-      addr: n.server_addr || n.addr,
-      key: n.master_key || n.key,
-      sni: n.sni || 'www.microsoft.com',
-      country: n.country || getCountryFlag(n.server_addr || n.addr, n.name),
-      ping: n.ping || 35
-    }));
-    state.activeServerId = embeddedCfg.active_id || (state.servers[0] ? state.servers[0].id : null);
+    const valid = cfgList.filter(isRealServer);
+    if (valid.length > 0) {
+      state.servers = valid.map((n, idx) => ({
+        id: n.id || ('node-' + idx),
+        name: n.name || 'ShadowStar Node',
+        addr: n.server_addr || n.addr,
+        key: n.master_key || n.key,
+        sni: n.sni || 'www.microsoft.com',
+        country: n.country || getCountryFlag(n.server_addr || n.addr, n.name),
+        ping: n.ping || 35
+      }));
+      state.activeServerId = embeddedCfg.active_id || (state.servers[0] ? state.servers[0].id : null);
+    }
   }
 
-  // Fallback default VPS node if list is empty
+  // Fallback default VPS node if list is empty or only had dummy nodes
   if (!state.servers || state.servers.length === 0) {
-    state.servers = [
-      {
-        id: 'node-main-vps',
-        name: 'ShadowStar Netherlands (VPS)',
-        addr: '179.253.74.36:4433',
-        key: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-        sni: 'www.microsoft.com',
-        country: '🇳🇱',
-        ping: 38
-      }
-    ];
-    state.activeServerId = 'node-main-vps';
+    state.servers = [{ ...DEFAULT_VPS_SERVER }];
+    state.activeServerId = DEFAULT_VPS_SERVER.id;
+    saveStoredServers();
   }
 
   const savedActive = localStorage.getItem('shadowstar_active_id');
@@ -240,20 +269,22 @@ function loadStoredServers() {
   .then(res => res.json())
   .then(data => {
     if (data.success && data.data && Array.isArray(data.data.servers) && data.data.servers.length > 0) {
-      const remoteList = data.data.servers.map((s, idx) => ({
-        id: s.id || ('node-' + idx),
-        name: s.name || 'ShadowStar Node',
-        addr: s.server_addr || s.addr,
-        key: s.master_key || s.key,
-        sni: s.sni || 'www.microsoft.com',
-        country: getCountryFlag(s.server_addr || s.addr, s.name),
-        ping: s.ping || 35
-      }));
-      state.servers = remoteList;
-      if (data.data.active_id) state.activeServerId = data.data.active_id;
-      if (data.data.subscription_url) state.subscriptionUrl = data.data.subscription_url;
-      saveStoredServers(false);
-      updateUI();
+      const validRemote = data.data.servers.filter(isRealServer);
+      if (validRemote.length > 0) {
+        state.servers = validRemote.map((s, idx) => ({
+          id: s.id || ('node-' + idx),
+          name: s.name || 'ShadowStar Node',
+          addr: s.server_addr || s.addr,
+          key: s.master_key || s.key,
+          sni: s.sni || 'www.microsoft.com',
+          country: getCountryFlag(s.server_addr || s.addr, s.name),
+          ping: s.ping || 35
+        }));
+        if (data.data.active_id) state.activeServerId = data.data.active_id;
+        if (data.data.subscription_url) state.subscriptionUrl = data.data.subscription_url;
+        saveStoredServers(false);
+        updateUI();
+      }
     }
   })
   .catch(() => {});
@@ -409,30 +440,43 @@ function connectVPN() {
 
   state.connecting = true;
   updateUI();
+  showToast(active.name);
 
   const payload = {
     profile_json: JSON.stringify({
-      id: active.id,
-      name: active.name,
-      server_addr: active.addr,
-      master_key: active.key,
+      id: active.id || 'active',
+      name: active.name || 'ShadowStar Node',
+      server_addr: active.addr || active.server_addr,
+      master_key: active.key || active.master_key,
       sni: active.sni || 'www.microsoft.com',
       enable_chunker: true
     })
   };
 
-  if (window.AndroidBridge && window.AndroidBridge.connectVPN) {
+  // 1. Android Native App Bridge
+  if (window.AndroidBridge) {
     try {
-      window.AndroidBridge.connectVPN(payload.profile_json);
-      state.connected = true;
-      state.connecting = false;
-      state.connectStartTime = Date.now();
-      updateUI();
-      showToast(t('statusOn'));
-      return;
-    } catch (e) {}
+      if (typeof window.AndroidBridge.connectVPN === 'function') {
+        window.AndroidBridge.connectVPN(payload.profile_json);
+        return;
+      } else if (typeof window.AndroidBridge.startVpnWithProfile === 'function') {
+        window.AndroidBridge.startVpnWithProfile(
+          active.name || 'ShadowStar Node',
+          active.addr || active.server_addr,
+          active.key || active.master_key,
+          active.sni || 'www.microsoft.com'
+        );
+        return;
+      } else if (typeof window.AndroidBridge.startVpn === 'function') {
+        window.AndroidBridge.startVpn();
+        return;
+      }
+    } catch (e) {
+      console.error('AndroidBridge connect error:', e);
+    }
   }
 
+  // 2. Local REST API fallback (PWA / browser mode)
   fetch(`${API_BASE}/connect`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -452,31 +496,45 @@ function connectVPN() {
     updateUI();
   })
   .catch(() => {
-    // Demo fallback mode for offline/browser-only view
-    setTimeout(() => {
-      state.connecting = false;
-      state.connected = true;
-      state.connectStartTime = Date.now();
-      updateUI();
-      showToast(t('statusOn'));
-    }, 600);
+    state.connecting = false;
+    state.connected = false;
+    showToast('Ошибка подключения к службе ShadowStar');
+    updateUI();
   });
 }
 
 function disconnectVPN() {
-  if (window.AndroidBridge && window.AndroidBridge.disconnectVPN) {
+  state.connecting = false;
+
+  // 1. Android Native App Bridge
+  if (window.AndroidBridge) {
     try {
-      window.AndroidBridge.disconnectVPN();
+      if (typeof window.AndroidBridge.disconnectVPN === 'function') {
+        window.AndroidBridge.disconnectVPN();
+      } else if (typeof window.AndroidBridge.stopVpn === 'function') {
+        window.AndroidBridge.stopVpn();
+      }
       state.connected = false;
       state.connectStartTime = null;
       updateUI();
       showToast(t('statusOff'));
       return;
-    } catch (e) {}
+    } catch (e) {
+      console.error('AndroidBridge disconnect error:', e);
+    }
   }
 
+  // 2. Local REST API fallback
   fetch(`${API_BASE}/disconnect`, { method: 'POST' })
   .then(res => res.json())
+  .catch(() => ({}))
+  .finally(() => {
+    state.connected = false;
+    state.connectStartTime = null;
+    updateUI();
+    showToast(t('statusOff'));
+  });
+}
   .catch(() => ({}))
   .finally(() => {
     state.connected = false;

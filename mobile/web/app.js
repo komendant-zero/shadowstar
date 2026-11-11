@@ -838,24 +838,69 @@ function openUpdateModal() {
   const curTag = document.getElementById('update-cur-tag');
   const notesBox = document.getElementById('update-notes-box');
   const apkBtn = document.getElementById('btn-apk-download');
+  const applyBtn = document.getElementById('btn-apply-update');
 
   if (newTag) newTag.textContent = u.tag_name || CURRENT_VERSION;
   if (curTag) curTag.textContent = 'Текущая: ' + (u.current_version || CURRENT_VERSION);
   if (notesBox) notesBox.textContent = u.body || 'Улучшения безопасности протокола и стабильности подключения.';
 
-  if (apkBtn) {
-    if (u.apk_url) {
-      apkBtn.href = u.apk_url;
-      apkBtn.style.display = 'block';
-    } else {
-      apkBtn.style.display = 'none';
+  // If in Android native app, adjust main button label
+  if (window.AndroidBridge || navigator.userAgent.includes('Android')) {
+    if (applyBtn) {
+      applyBtn.textContent = 'Скачать и установить APK';
     }
+  }
+
+  if (apkBtn) {
+    apkBtn.style.display = 'block';
   }
 
   openModal('modal-update');
 }
 
+function openApkDownload(e) {
+  if (e) e.preventDefault();
+  const u = state.availableUpdate;
+  const apkUrl = (u && u.apk_url) ? u.apk_url : 'https://github.com/komendant-zero/shadowstar/releases/latest';
+
+  if (window.AndroidBridge) {
+    if (typeof window.AndroidBridge.downloadAndInstallApk === 'function') {
+      window.AndroidBridge.downloadAndInstallApk(apkUrl);
+      closeModal('modal-update');
+      return;
+    }
+    if (typeof window.AndroidBridge.openBrowser === 'function') {
+      window.AndroidBridge.openBrowser(apkUrl);
+      closeModal('modal-update');
+      return;
+    }
+  }
+
+  window.open(apkUrl, '_system') || (window.location.href = apkUrl);
+}
+
 function applyUpdateNow() {
+  const u = state.availableUpdate;
+  const apkUrl = (u && u.apk_url) ? u.apk_url : 'https://github.com/komendant-zero/shadowstar/releases/latest';
+
+  // 1. Android Native App: download directly or open system browser
+  if (window.AndroidBridge) {
+    if (typeof window.AndroidBridge.downloadAndInstallApk === 'function') {
+      window.AndroidBridge.downloadAndInstallApk(apkUrl);
+      closeModal('modal-update');
+      return;
+    }
+    if (typeof window.AndroidBridge.openBrowser === 'function') {
+      window.AndroidBridge.openBrowser(apkUrl);
+      closeModal('modal-update');
+      return;
+    }
+    window.location.href = apkUrl;
+    closeModal('modal-update');
+    return;
+  }
+
+  // 2. Desktop Web / CLI Daemon mode
   if (state.isUpdating) return;
   state.isUpdating = true;
 
@@ -909,7 +954,8 @@ function applyUpdateNow() {
   })
   .catch(err => {
     state.isUpdating = false;
-    showToast(t('updateFailed') + ': ' + err.message);
+    showToast('Переход к скачиванию APK...');
+    openApkDownload(null);
     if (applyBtn) {
       applyBtn.disabled = false;
       applyBtn.textContent = t('btnInstallUpdate');

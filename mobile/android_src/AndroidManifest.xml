@@ -23,6 +23,7 @@
         android:allowBackup="true"
         android:restoreAnyVersion="true"
         android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.NoTitleBar"
         android:hardwareAccelerated="true"
         android:extractNativeLibs="true">

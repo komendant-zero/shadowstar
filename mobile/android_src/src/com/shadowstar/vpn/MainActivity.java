@@ -58,8 +58,19 @@ public class MainActivity extends Activity {
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
+
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new SafeWebViewClient(this));
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            } catch (Throwable ignored) {}
+        });
 
         webView.addJavascriptInterface(new AndroidBridge(this), "AndroidBridge");
         setContentView(webView);
@@ -406,6 +417,19 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            if (url != null && !url.startsWith("https://shadowstar.app")) {
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    activity.startActivity(intent);
+                    return true;
+                } catch (Throwable ignored) {}
+            }
+            return false;
+        }
+
+        @Override
         public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
             if (activity != null) {
                 activity.loadEmbeddedHtml();
@@ -418,6 +442,48 @@ public class MainActivity extends Activity {
 
         public AndroidBridge(MainActivity activity) {
             this.activity = activity;
+        }
+
+        @JavascriptInterface
+        public void openBrowser(String url) {
+            activity.runOnUiThread(() -> {
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    activity.startActivity(intent);
+                } catch (Throwable t) {
+                    Toast.makeText(activity, "Не удалось открыть браузер: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void downloadAndInstallApk(String url) {
+            activity.runOnUiThread(() -> {
+                try {
+                    android.app.DownloadManager dm = (android.app.DownloadManager) activity.getSystemService(Context.DOWNLOAD_SERVICE);
+                    if (dm != null && url != null && url.startsWith("http")) {
+                        android.net.Uri uri = android.net.Uri.parse(url);
+                        android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(uri);
+                        request.setTitle("ShadowStar VPN");
+                        request.setDescription("Загрузка обновления ShadowStar.apk...");
+                        request.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                        request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, "ShadowStar.apk");
+                        request.setMimeType("application/vnd.android.package-archive");
+                        dm.enqueue(request);
+                        Toast.makeText(activity, "Загрузка ShadowStar.apk начата. Проверьте панель уведомлений", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                } catch (Throwable ignored) {}
+
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    activity.startActivity(intent);
+                } catch (Throwable t) {
+                    Toast.makeText(activity, "Ошибка: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            });
         }
 
         @JavascriptInterface

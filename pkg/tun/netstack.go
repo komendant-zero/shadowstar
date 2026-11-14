@@ -429,6 +429,16 @@ func (ns *NetStack) handleDNSQuery(clientIP, dnsServerIP net.IP, clientPort uint
 		}
 	}
 
+	// 2. For AAAA (IPv6) queries in an IPv4 tunnel, respond instantly with NOERROR (0 answers)
+	// so Android Happy Eyeballs immediately falls back to IPv4 without timeout.
+	if qtype == 28 {
+		resp := buildEmptyDNSResponse(txID, dnsData)
+		if resp != nil {
+			ns.sendUDPPacket(dnsServerIP, clientIP, 53, clientPort, resp)
+		}
+		return
+	}
+
 	// 2. Direct upstream resolution via client or default DoH
 	go func() {
 		ips, err := net.LookupIP(domain)
@@ -605,8 +615,23 @@ func (ns *NetStack) forwardRemoteToTUN(connObj *activeTCPConn, srcIP, dstIP net.
 		n, err := connObj.remoteConn.Read(buf)
 		if n > 0 {
 			connObj.writeMu.Lock()
-			ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, connObj.serverSeq, connObj.clientSeq, TCPFlagPSH|TCPFlagACK, buf[:n])
-			connObj.serverSeq += uint32(n)
+			// MSS chunking: Android TUN device MTU is 1500 (IPv4 hdr 20 + TCP hdr 20 = 40 bytes overhead).
+			// If payload > 1360 bytes, kernel/TUN driver drops oversized packets.
+			const maxMSS = 1360
+			offset := 0
+			for offset < n {
+				chunkSize := n - offset
+				if chunkSize > maxMSS {
+					chunkSize = maxMSS
+				}
+				flags := byte(TCPFlagACK)
+				if offset+chunkSize == n {
+					flags |= TCPFlagPSH
+				}
+				ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, connObj.serverSeq, connObj.clientSeq, flags, buf[offset:offset+chunkSize])
+				connObj.serverSeq += uint32(chunkSize)
+				offset += chunkSize
+			}
 			connObj.writeMu.Unlock()
 			connObj.lastActive.Store(time.Now().Unix())
 		}
@@ -854,6 +879,24 @@ func buildSyntheticDNSResponse(txID uint16, rawQuery []byte, ipStr string) []byt
 	binary.BigEndian.PutUint16(resp[ansOffset+10:ansOffset+12], 4)    // RDLENGTH: 4
 	copy(resp[ansOffset+12:ansOffset+16], parsedIP)
 
+	return resp
+}
+
+func buildEmptyDNSResponse(txID uint16, rawQuery []byte) []byte {
+	// Standard DNS header (12 bytes) + Question section, ANCOUNT = 0, NOERROR
+	qLen := len(rawQuery) - 12
+	if qLen <= 0 {
+		return nil
+	}
+	resp := make([]byte, 12+qLen)
+	binary.BigEndian.PutUint16(resp[0:2], txID)
+	resp[2] = 0x81 // Flags: Standard query response, No error
+	resp[3] = 0x80 // RA (Recursion Available)
+	binary.BigEndian.PutUint16(resp[4:6], 1) // QDCOUNT = 1
+	binary.BigEndian.PutUint16(resp[6:8], 0) // ANCOUNT = 0
+	binary.BigEndian.PutUint16(resp[8:10], 0)
+	binary.BigEndian.PutUint16(resp[10:12], 0)
+	copy(resp[12:], rawQuery[12:])
 	return resp
 }
 

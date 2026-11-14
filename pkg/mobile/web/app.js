@@ -1,6 +1,6 @@
-// ShadowStar Mobile Web / PWA Engine v2.0.0
+// ShadowStar Mobile Web / PWA Engine v2.0.1
 const API_BASE = 'http://127.0.0.1:10810/api';
-const CURRENT_VERSION = 'v2.0.0';
+const CURRENT_VERSION = 'v2.0.1';
 
 const i18n = {
   ru: {
@@ -765,12 +765,28 @@ function addProfileToState(prof) {
 }
 
 // --- GitHub Auto-Update System ---
+function compareSemVer(v1, v2) {
+  if (!v1 || !v2) return 0;
+  const p1 = String(v1).replace(/^v/i, '').trim().split('.').map(n => parseInt(n, 10) || 0);
+  const p2 = String(v2).replace(/^v/i, '').trim().split('.').map(n => parseInt(n, 10) || 0);
+  const maxLen = Math.max(p1.length, p2.length);
+  for (let i = 0; i < maxLen; i++) {
+    const num1 = p1[i] || 0;
+    const num2 = p2[i] || 0;
+    if (num1 > num2) return 1;
+    if (num1 < num2) return -1;
+  }
+  return 0;
+}
+
 function checkUpdateAsync() {
   fetch(`${API_BASE}/check-update`)
   .then(res => res.json())
   .then(data => {
     if (data.success && data.data) {
       handleUpdateInfo(data.data);
+    } else {
+      handleUpdateInfo({ is_newer: false });
     }
   })
   .catch(() => {
@@ -779,7 +795,7 @@ function checkUpdateAsync() {
     .then(res => res.json())
     .then(gh => {
       if (gh && gh.tag_name) {
-        const isNewer = (gh.tag_name !== CURRENT_VERSION);
+        const isNewer = compareSemVer(gh.tag_name, CURRENT_VERSION) > 0;
         let apk = '';
         if (gh.assets) {
           const a = gh.assets.find(item => item.name && item.name.endsWith('.apk'));
@@ -794,28 +810,58 @@ function checkUpdateAsync() {
           apk_url: apk,
           current_version: CURRENT_VERSION
         });
+      } else {
+        handleUpdateInfo({ is_newer: false });
       }
     })
-    .catch(() => {});
+    .catch(() => {
+      handleUpdateInfo({ is_newer: false });
+    });
   });
 }
 
 function handleUpdateInfo(info) {
   state.availableUpdate = info;
-  if (info.is_newer) {
-    const badge = document.getElementById('header-update-badge');
-    const tagSpan = document.getElementById('header-update-tag');
+  const badge = document.getElementById('header-update-badge');
+  const tagSpan = document.getElementById('header-update-tag');
+  const banner = document.getElementById('update-banner');
+  const bannerSub = document.getElementById('update-banner-sub');
+
+  const isActuallyNewer = info && (info.is_newer === true || (info.tag_name && compareSemVer(info.tag_name, CURRENT_VERSION) > 0));
+
+  if (isActuallyNewer) {
     if (badge && tagSpan) {
       badge.style.display = 'flex';
       tagSpan.textContent = info.tag_name;
     }
 
-    const banner = document.getElementById('update-banner');
-    const bannerSub = document.getElementById('update-banner-sub');
     if (banner && bannerSub) {
-      banner.style.display = 'flex';
-      bannerSub.textContent = `ShadowStar ${info.tag_name} (${t('updateAvailable')})`;
+      const dismissedTag = localStorage.getItem('shadowstar_dismissed_update');
+      if (dismissedTag !== info.tag_name) {
+        banner.style.display = 'flex';
+        bannerSub.textContent = `ShadowStar ${info.tag_name} (${t('updateAvailable')})`;
+      } else {
+        banner.style.display = 'none';
+      }
     }
+  } else {
+    // Ensure update badge and banner are hidden when current version is up to date
+    if (badge) badge.style.display = 'none';
+    if (banner) banner.style.display = 'none';
+  }
+}
+
+function dismissUpdateBanner(e) {
+  if (e) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+  const banner = document.getElementById('update-banner');
+  if (banner) banner.style.display = 'none';
+  if (state.availableUpdate && state.availableUpdate.tag_name) {
+    try {
+      localStorage.setItem('shadowstar_dismissed_update', state.availableUpdate.tag_name);
+    } catch (_) {}
   }
 }
 

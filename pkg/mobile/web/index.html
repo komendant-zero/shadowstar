@@ -37,10 +37,13 @@
         <span class="update-dot"></span>
         <div>
           <div class="update-banner-title" data-i18n="updateBannerTitle">Доступно обновление</div>
-          <div class="update-banner-sub" id="update-banner-sub">ShadowStar v1.4.1</div>
+          <div class="update-banner-sub" id="update-banner-sub">ShadowStar</div>
         </div>
       </div>
-      <button class="update-banner-btn" type="button" data-i18n="btnUpdate">Обновить</button>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button class="update-banner-btn" type="button" data-i18n="btnUpdate">Обновить</button>
+        <button class="update-banner-close" type="button" onclick="dismissUpdateBanner(event)" title="Закрыть" aria-label="Закрыть">✕</button>
+      </div>
     </div>
 
     <!-- Main Single-Screen Dashboard -->

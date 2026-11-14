@@ -87,12 +87,7 @@ public class ShadowStarVpnService extends VpnService {
             } catch (Throwable ignored) {
             }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                try {
-                    builder.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", 10809));
-                } catch (Throwable ignored) {
-                }
-            }
+            // Transparent L3 TUN routing (no HTTP proxy set, ensuring games like Billionaire Casino do not trigger anti-cheat proxy blocks)
             builder.addRoute("0.0.0.0", 0);
 
             builder.addDnsServer("1.1.1.1");
@@ -119,10 +114,15 @@ public class ShadowStarVpnService extends VpnService {
                         try (FileInputStream in = new FileInputStream(vpnInterface.getFileDescriptor())) {
                             byte[] packet = new byte[32768];
                             while (isRunning && vpnInterface != null && !sock.isClosed()) {
-                                int len = in.read(packet);
-                                if (len <= 0) continue;
-                                DatagramPacket dp = new DatagramPacket(packet, len, loopback, relayPort);
-                                sock.send(dp);
+                                try {
+                                    int len = in.read(packet);
+                                    if (len <= 0) continue;
+                                    DatagramPacket dp = new DatagramPacket(packet, len, loopback, relayPort);
+                                    sock.send(dp);
+                                } catch (Throwable t) {
+                                    if (!isRunning) break;
+                                    try { Thread.sleep(20); } catch (InterruptedException ignored) {}
+                                }
                             }
                         } catch (Throwable ignored) {
                         }
@@ -134,10 +134,15 @@ public class ShadowStarVpnService extends VpnService {
                             byte[] respBuf = new byte[32768];
                             DatagramPacket respPkt = new DatagramPacket(respBuf, respBuf.length);
                             while (isRunning && vpnInterface != null && !sock.isClosed()) {
-                                sock.receive(respPkt);
-                                int len = respPkt.getLength();
-                                if (len > 0) {
-                                    out.write(respPkt.getData(), 0, len);
+                                try {
+                                    sock.receive(respPkt);
+                                    int len = respPkt.getLength();
+                                    if (len > 0) {
+                                        out.write(respPkt.getData(), 0, len);
+                                    }
+                                } catch (Throwable t) {
+                                    if (!isRunning) break;
+                                    try { Thread.sleep(20); } catch (InterruptedException ignored) {}
                                 }
                             }
                         } catch (Throwable ignored) {

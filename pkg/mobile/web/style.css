@@ -179,6 +179,32 @@ body {
   padding: 6px 12px;
   border-radius: 6px;
   cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.update-banner-btn:active {
+  transform: scale(0.95);
+}
+
+.update-banner-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.update-banner-close:hover,
+.update-banner-close:focus {
+  color: #FFF;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* Dashboard Main */

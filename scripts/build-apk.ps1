@@ -5,6 +5,9 @@ param(
     [string]$AndroidPlatform = "android-34"
 )
 
+Set-Location "d:\ocli\ShadowStar"
+[System.IO.Directory]::SetCurrentDirectory("d:\ocli\ShadowStar")
+
 $ErrorActionPreference = "Stop"
 
 $BuildTools = "$SdkDir\build-tools\$BuildToolsVer"
@@ -41,6 +44,12 @@ $env:GOARCH = "arm64"
 $env:CGO_ENABLED = "0"
 $env:GOCACHE = "d:\ocli\ShadowStar\.gocache"
 & go build -buildvcs=false -trimpath -ldflags="-s -w" -o "$SrcRoot\lib\arm64-v8a\libshadowstar.so" ./cmd/shadowstar-mobile
+Copy-Item "$SrcRoot\lib\arm64-v8a\libshadowstar.so" "d:\ocli\ShadowStar\bin\libshadowstar-v2.so" -Force
+
+# Build PC Mobile daemon as well
+$env:GOOS = "windows"
+$env:GOARCH = "amd64"
+& go build -buildvcs=false -trimpath -ldflags="-s -w" -o "d:\ocli\ShadowStar\bin\shadowstar-mobile-v2.exe" ./cmd/shadowstar-mobile
 
 function Build-Variant {
     param(
@@ -108,16 +117,15 @@ function Build-Variant {
     & $D8 --release --min-api 21 --lib $AndroidJar --output "$VarWork\dex" $ClassFiles
 
     # 5. Pack dex and native library into APK
-    Write-Host "[5/7] Adding classes.dex and arm64 binary into APK..." -ForegroundColor Yellow
-    Set-Location "$VarWork\dex"
-    & $Jar -uf $UnsignedApk classes.dex
-    Set-Location "d:\ocli\ShadowStar"
-
-    if (Test-Path "$SrcRoot\lib") {
-        Set-Location "$SrcRoot"
-        & $Jar -uf $UnsignedApk lib/arm64-v8a/libshadowstar.so
-        Set-Location "d:\ocli\ShadowStar"
+    Write-Host "[5/7] Adding classes.dex and arm64 binary into APK via ZipArchive..." -ForegroundColor Yellow
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zipArchive = [System.IO.Compression.ZipFile]::Open($UnsignedApk, "Update")
+    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zipArchive, "$VarWork\dex\classes.dex", "classes.dex")
+    if (Test-Path "$SrcRoot\lib\arm64-v8a\libshadowstar.so") {
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zipArchive, "$SrcRoot\lib\arm64-v8a\libshadowstar.so", "lib/arm64-v8a/libshadowstar.so")
     }
+    $zipArchive.Dispose()
 
     # 6. Align APK with zipalign
     Write-Host "[6/7] 4-byte page-aligning APK..." -ForegroundColor Yellow
@@ -135,15 +143,13 @@ function Build-Variant {
     Write-Host "Success: $OutputFile" -ForegroundColor Green
 }
 
-# Build Public APK
-Build-Variant -VariantName "public" -ConfigPath "shadowstar-client.json" -OutputFile "d:\ocli\ShadowStar\bin\ShadowStar.apk"
-Copy-Item "d:\ocli\ShadowStar\bin\ShadowStar.apk" "d:\ocli\ShadowStar\ShadowStar.apk" -Force
+# Build Public v2 APK
+Build-Variant -VariantName "public" -ConfigPath "shadowstar-client.json" -OutputFile "d:\ocli\ShadowStar\bin\ShadowStar-v2.apk"
 
-# Build Personal APK
+# Build Personal v2 APK
 if (Test-Path "shadowstar-client.personal.json") {
-    Build-Variant -VariantName "personal" -ConfigPath "shadowstar-client.personal.json" -OutputFile "d:\ocli\ShadowStar\bin\ShadowStar-Personal.apk"
-    Copy-Item "d:\ocli\ShadowStar\bin\ShadowStar-Personal.apk" "d:\ocli\ShadowStar\ShadowStar-Personal.apk" -Force
+    Build-Variant -VariantName "personal" -ConfigPath "shadowstar-client.personal.json" -OutputFile "d:\ocli\ShadowStar\bin\ShadowStar-v2-Personal.apk"
 }
 
-Write-Host "ALL APKS SUCCESSFULLY BUILT" -ForegroundColor Green
-Get-Item "d:\ocli\ShadowStar\bin\*.apk" | Select-Object Name, Length
+Write-Host "ALL V2 APKS SUCCESSFULLY BUILT" -ForegroundColor Green
+Get-Item "d:\ocli\ShadowStar\bin\ShadowStar-v2*.apk" | Select-Object Name, Length

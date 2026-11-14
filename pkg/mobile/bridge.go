@@ -13,6 +13,7 @@ import (
 
 	"github.com/shadowstar/shadowstar/pkg/client"
 	"github.com/shadowstar/shadowstar/pkg/config"
+	"github.com/shadowstar/shadowstar/pkg/tun"
 )
 
 //go:embed web/*
@@ -31,10 +32,12 @@ func GetWebHandler() http.Handler {
 type MobileBridge struct {
 	mu           sync.Mutex
 	client       *client.Client
+	packetRelay  *tun.PacketRelay
 	activeConfig *client.Config
 	connected    bool
 	socksAddr    string
 	httpAddr     string
+	relayAddr    string
 	startTime    time.Time
 }
 
@@ -49,6 +52,7 @@ func GetBridge() *MobileBridge {
 		bridgeInstance = &MobileBridge{
 			socksAddr: "127.0.0.1:10808",
 			httpAddr:  "127.0.0.1:10809",
+			relayAddr: "127.0.0.1:10811",
 		}
 	})
 	return bridgeInstance
@@ -86,6 +90,13 @@ func StartVPN(profileJSON string) (string, error) {
 		return "", fmt.Errorf("failed to start client: %w", err)
 	}
 
+	// Start Android L3 packet relay for games & raw socket proxying
+	relay, rErr := tun.NewPacketRelay(b.relayAddr, c, nil, nil)
+	if rErr == nil {
+		relay.Start()
+		b.packetRelay = relay
+	}
+
 	b.client = c
 	b.connected = true
 	b.startTime = time.Now()
@@ -101,6 +112,11 @@ func StopVPN() error {
 
 	if !b.connected || b.client == nil {
 		return nil
+	}
+
+	if b.packetRelay != nil {
+		_ = b.packetRelay.Stop()
+		b.packetRelay = nil
 	}
 
 	err := b.client.Stop()

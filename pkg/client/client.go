@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"crypto/ecdh"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -18,21 +17,24 @@ import (
 	"time"
 
 	"github.com/shadowstar/shadowstar/pkg/protocol"
+	"github.com/shadowstar/shadowstar/pkg/routing"
 )
 
 // ServerProfile holds connection settings for a ShadowStar node
 type ServerProfile struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	ServerAddr    string `json:"server_addr"`    // e.g. "1.2.3.4:443"
-	MasterKey     string `json:"master_key"`     // secret
-	SNI           string `json:"sni"`            // e.g. "www.microsoft.com"
-	EnableChunker bool   `json:"enable_chunker"` // TCP fragmentation
-	PaddingLen    int    `json:"padding_len"`    // Dynamic padding (16-256)
-	Ping          int    `json:"ping"`           // ms latency
-	TimeOffset    int64  `json:"time_offset"`    // clock drift correction in seconds
-	Country       string `json:"country,omitempty"` // e.g. "NL", "DE", "US"
-	GroupID       string `json:"group_id,omitempty"` // category / subscription group ID
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	ServerAddr    string   `json:"server_addr"`    // e.g. "1.2.3.4:443"
+	MasterKey     string   `json:"master_key"`     // secret
+	SNI           string   `json:"sni"`            // e.g. "www.microsoft.com"
+	EnableChunker bool     `json:"enable_chunker"` // TCP fragmentation
+	PaddingLen    int      `json:"padding_len"`    // Dynamic padding (16-256)
+	Ping          int      `json:"ping"`           // ms latency
+	TimeOffset    int64    `json:"time_offset"`    // clock drift correction in seconds
+	Country       string   `json:"country,omitempty"` // e.g. "NL", "DE", "US"
+	GroupID       string   `json:"group_id,omitempty"` // category / subscription group ID
+	SNIPool       []string `json:"sni_pool,omitempty"`
+	Fingerprint   string   `json:"fingerprint,omitempty"`
 }
 
 // SubscriptionGroup represents a category of servers or an external subscription
@@ -52,6 +54,9 @@ type Config struct {
 	ActiveGroupID   string              `json:"active_group_id,omitempty"`
 	Servers         []ServerProfile     `json:"servers"`
 	ActiveID        string              `json:"active_id"`
+	Routing         *routing.Config     `json:"routing,omitempty"`
+	Whitelist       []string            `json:"whitelist,omitempty"`
+	Blacklist       []string            `json:"blacklist,omitempty"`
 }
 
 // EnsureGroups ensures there is at least one group and migrates ungrouped servers
@@ -232,6 +237,16 @@ type Client struct {
 	startTime     time.Time
 	latency       atomic.Int64
 
+	// Stealth & Resilience
+	sniMgr        *SNIPoolManager
+	udpJitterMax  time.Duration
+	udpObfs       bool
+	servers       []ServerProfile
+	activeGroupID string
+	healthMonitor HealthMonitor
+	tunnelDialer  func(destAddr string) (net.Conn, error)
+	router        routing.Engine
+
 	// Log stream
 	logChan chan string
 	logMu   sync.Mutex
@@ -253,24 +268,50 @@ func isLocalHost(hostPort string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasPrefix(host, "127.")
 }
 
+func sanitizeSNI(sni string) string {
+	sni = strings.TrimSpace(sni)
+	if strings.Contains(sni, ":") {
+		h, _, err := net.SplitHostPort(sni)
+		if err == nil && h != "" {
+			return h
+		} else if idx := strings.Index(sni, ":"); idx != -1 {
+			return sni[:idx]
+		}
+	}
+	return sni
+}
+
 func sanitizeProfile(p *ServerProfile) {
 	p.ServerAddr = strings.TrimSpace(p.ServerAddr)
 	p.MasterKey = strings.TrimSpace(p.MasterKey)
-	p.SNI = strings.TrimSpace(p.SNI)
+	p.SNI = sanitizeSNI(p.SNI)
 	if p.ServerAddr != "" && !strings.Contains(p.ServerAddr, ":") {
 		p.ServerAddr = p.ServerAddr + ":4433"
 	}
-	// Strip :port if user included it in SNI
-	if strings.Contains(p.SNI, ":") {
-		h, _, err := net.SplitHostPort(p.SNI)
-		if err == nil && h != "" {
-			p.SNI = h
-		} else if idx := strings.Index(p.SNI, ":"); idx != -1 {
-			p.SNI = p.SNI[:idx]
-		}
-	}
 	if p.SNI == "" {
 		p.SNI = "www.microsoft.com"
+	}
+
+	var cleanPool []string
+	seen := make(map[string]bool)
+	for _, s := range p.SNIPool {
+		clean := sanitizeSNI(s)
+		if clean != "" && !seen[clean] {
+			cleanPool = append(cleanPool, clean)
+			seen[clean] = true
+		}
+	}
+	if !seen[p.SNI] && p.SNI != "" {
+		cleanPool = append([]string{p.SNI}, cleanPool...)
+		seen[p.SNI] = true
+	}
+	if len(cleanPool) == 0 {
+		cleanPool = []string{p.SNI}
+	}
+	p.SNIPool = cleanPool
+
+	if p.Fingerprint == "" {
+		p.Fingerprint = "chrome_133"
 	}
 	if p.PaddingLen == 0 {
 		p.PaddingLen = 64
@@ -290,17 +331,37 @@ func NewClient(profile ServerProfile, socksAddr, httpAddr string) (*Client, erro
 
 	primaryKey, legacyKey := protocol.NormalizeMasterKey(profile.MasterKey)
 
+	defRouter, _ := routing.NewEngine(routing.DefaultConfig())
+
 	c := &Client{
-		profile:   profile,
-		socksAddr: socksAddr,
-		httpAddr:  httpAddr,
-		masterKey: primaryKey,
-		legacyKey: legacyKey,
-		logChan:   make(chan string, 100),
-		logs:      make([]string, 0, 100),
+		profile:      profile,
+		socksAddr:    socksAddr,
+		httpAddr:     httpAddr,
+		masterKey:    primaryKey,
+		legacyKey:    legacyKey,
+		router:       defRouter,
+		logChan:      make(chan string, 100),
+		logs:         make([]string, 0, 100),
+		sniMgr:       NewSNIPoolManager(profile.SNIPool, profile.SNI),
+		udpJitterMax: 25 * time.Millisecond,
+		udpObfs:      true,
 	}
 
 	return c, nil
+}
+
+// SetRouter sets the routing engine for destination routing decisions
+func (c *Client) SetRouter(r routing.Engine) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.router = r
+}
+
+// GetRouter returns the active routing engine
+func (c *Client) GetRouter() routing.Engine {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.router
 }
 
 // Start launches the local SOCKS5 and HTTP proxy servers
@@ -348,7 +409,13 @@ func (c *Client) Stop() error {
 		return nil
 	}
 	c.running = false
+	hm := c.healthMonitor
+	c.healthMonitor = nil
 	c.mu.Unlock()
+
+	if hm != nil {
+		hm.Stop()
+	}
 
 	if c.socksListener != nil {
 		c.socksListener.Close()
@@ -382,6 +449,11 @@ func (c *Client) UpdateProfile(p ServerProfile) {
 	primaryKey, legacyKey := protocol.NormalizeMasterKey(p.MasterKey)
 	c.masterKey = primaryKey
 	c.legacyKey = legacyKey
+	if c.sniMgr != nil {
+		c.sniMgr.SetPool(p.SNIPool, p.SNI)
+	} else {
+		c.sniMgr = NewSNIPoolManager(p.SNIPool, p.SNI)
+	}
 	c.mu.Unlock()
 
 	c.muSession.Lock()
@@ -401,85 +473,132 @@ func (c *Client) getSession() (*protocol.MuxSession, error) {
 		return c.session, nil
 	}
 
-	// Dial remote server
-	c.Log(fmt.Sprintf("[Handshake] Initiating TLS 1.3 Camouflage Handshake -> %s", c.profile.ServerAddr))
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", c.profile.ServerAddr, 8*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to server: %w", err)
+	c.mu.RLock()
+	sniMgr := c.sniMgr
+	poolLen := len(c.profile.SNIPool)
+	c.mu.RUnlock()
+
+	if sniMgr == nil {
+		sniMgr = NewSNIPoolManager(c.profile.SNIPool, c.profile.SNI)
+		c.mu.Lock()
+		c.sniMgr = sniMgr
+		c.mu.Unlock()
 	}
 
-	// Perform TLS 1.3 Mimicry Handshake (with key fallback & auto clock-drift tolerance)
-	var clientPriv *ecdh.PrivateKey
-	var serverPub []byte
-	var usedKey []byte
-	candidates := []int64{c.profile.TimeOffset, 170, 180, 0, 120, 240, -120}
-	
-	keyOptions := [][]byte{c.masterKey}
-	if len(c.legacyKey) > 0 {
-		keyOptions = append(keyOptions, c.legacyKey)
+	attempts := poolLen
+	if attempts < 2 {
+		attempts = 2
+	}
+	if attempts > 4 {
+		attempts = 4
 	}
 
-	for kIdx, tryKey := range keyOptions {
-		if clientPriv != nil {
-			break
+	var lastErr error
+
+	for att := 0; att < attempts; att++ {
+		selectedSNI := sniMgr.SelectSNI()
+		c.Log(fmt.Sprintf("[Handshake] Initiating TLS 1.3 Camouflage Handshake -> %s (SNI: %s, Attempt %d/%d)",
+			c.profile.ServerAddr, selectedSNI, att+1, attempts))
+		start := time.Now()
+
+		conn, err := net.DialTimeout("tcp", c.profile.ServerAddr, 8*time.Second)
+		if err != nil {
+			sniMgr.ReportFailure(selectedSNI, err)
+			lastErr = fmt.Errorf("failed to connect to server: %w", err)
+			time.Sleep(50 * time.Millisecond)
+			continue
 		}
-		for idx, off := range candidates {
+
+		// Perform TLS 1.3 Mimicry Handshake (with key fallback & auto clock-drift tolerance)
+		var clientPriv *ecdh.PrivateKey
+		var serverPub []byte
+		var usedKey []byte
+		candidates := []int64{c.profile.TimeOffset, 170, 180, 0, 120, 240, -120}
+
+		keyOptions := [][]byte{c.masterKey}
+		if len(c.legacyKey) > 0 {
+			keyOptions = append(keyOptions, c.legacyKey)
+		}
+
+		var lastHandshakeErr error
+		for kIdx, tryKey := range keyOptions {
 			if clientPriv != nil {
 				break
 			}
-			if (idx > 0 || kIdx > 0) && conn != nil {
-				conn.Close()
-				conn, err = net.DialTimeout("tcp", c.profile.ServerAddr, 8*time.Second)
-				if err != nil {
-					return nil, fmt.Errorf("failed to reconnect: %w", err)
+			for idx, off := range candidates {
+				if clientPriv != nil {
+					break
+				}
+				if (idx > 0 || kIdx > 0) && conn != nil {
+					conn.Close()
+					conn, err = net.DialTimeout("tcp", c.profile.ServerAddr, 8*time.Second)
+					if err != nil {
+						lastHandshakeErr = fmt.Errorf("reconnect failed: %w", err)
+						break
+					}
+				}
+
+				cp, sp, hErr := protocol.PerformClientHandshake(conn, tryKey, selectedSNI, c.profile.EnableChunker, c.profile.PaddingLen, off)
+				if hErr == nil && sp != nil {
+					clientPriv = cp
+					serverPub = sp
+					usedKey = tryKey
+					c.profile.TimeOffset = off
+					break
+				} else {
+					lastHandshakeErr = hErr
 				}
 			}
-
-			cp, sp, hErr := protocol.PerformClientHandshake(conn, tryKey, c.profile.SNI, c.profile.EnableChunker, c.profile.PaddingLen, off)
-			if hErr == nil && sp != nil {
-				clientPriv = cp
-				serverPub = sp
-				usedKey = tryKey
-				c.profile.TimeOffset = off
-				break
-			}
 		}
+
+		if clientPriv == nil || serverPub == nil {
+			if conn != nil {
+				conn.Close()
+			}
+			sniMgr.ReportFailure(selectedSNI, lastHandshakeErr)
+			lastErr = fmt.Errorf("handshake failed with SNI %s: %v", selectedSNI, lastHandshakeErr)
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
+		// Compute ECDH shared secret
+		sharedSecret, err := protocol.ComputeECDH(clientPriv, serverPub)
+		if err != nil {
+			conn.Close()
+			sniMgr.ReportFailure(selectedSNI, err)
+			lastErr = fmt.Errorf("ecdh failed: %w", err)
+			continue
+		}
+
+		// Derive Bidirectional Session Keys using the successfully authenticated key
+		clientKey, serverKey, clientIV, serverIV, err := protocol.DeriveSessionKeys(sharedSecret, usedKey)
+		if err != nil {
+			conn.Close()
+			sniMgr.ReportFailure(selectedSNI, err)
+			lastErr = fmt.Errorf("derive keys failed: %w", err)
+			continue
+		}
+
+		// Client writes with clientKey, reads with serverKey
+		frameConn, err := protocol.NewSecureFrameConn(conn, clientKey, clientIV, serverKey, serverIV)
+		if err != nil {
+			conn.Close()
+			sniMgr.ReportFailure(selectedSNI, err)
+			lastErr = fmt.Errorf("frameConn failed: %w", err)
+			continue
+		}
+
+		sess := protocol.NewMuxSession(frameConn, conn, true)
+		c.session = sess
+		sniMgr.ReportSuccess(selectedSNI)
+		latencyMs := int(time.Since(start).Milliseconds())
+		c.latency.Store(int64(latencyMs))
+		c.Log(fmt.Sprintf("[Handshake-Success] Secure tunnel established via SNI %s! Latency: %d ms", selectedSNI, latencyMs))
+
+		return sess, nil
 	}
 
-	if clientPriv == nil || serverPub == nil {
-		conn.Close()
-		return nil, errors.New("handshake failed with all candidate time offsets and keys")
-	}
-
-	// Compute ECDH shared secret
-	sharedSecret, err := protocol.ComputeECDH(clientPriv, serverPub)
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("ecdh failed: %w", err)
-	}
-
-	// Derive Bidirectional Session Keys using the successfully authenticated key
-	clientKey, serverKey, clientIV, serverIV, err := protocol.DeriveSessionKeys(sharedSecret, usedKey)
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("derive keys failed: %w", err)
-	}
-
-	// Client writes with clientKey, reads with serverKey
-	frameConn, err := protocol.NewSecureFrameConn(conn, clientKey, clientIV, serverKey, serverIV)
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("frameConn failed: %w", err)
-	}
-
-	sess := protocol.NewMuxSession(frameConn, conn, true)
-	c.session = sess
-	latencyMs := int(time.Since(start).Milliseconds())
-	c.latency.Store(int64(latencyMs))
-	c.Log(fmt.Sprintf("[Handshake-Success] Secure tunnel established! Latency: %d ms", latencyMs))
-
-	return sess, nil
+	return nil, lastErr
 }
 
 func (c *Client) acceptSocksLoop() {
@@ -602,36 +721,49 @@ func (c *Client) handleSocksClient(conn net.Conn) {
 	port := binary.BigEndian.Uint16(portBuf)
 	destAddr := net.JoinHostPort(host, strconv.Itoa(int(port)))
 
-	// Direct route loopback for local tools (Antigravity, IDE, localhost)
+	// Route evaluation
+	c.mu.RLock()
+	router := c.router
+	c.mu.RUnlock()
+
+	var action routing.Action = routing.ActionProxy
 	if isLocalHost(destAddr) {
-		localConn, err := net.DialTimeout("tcp", destAddr, 3*time.Second)
+		action = routing.ActionDirect
+	} else if router != nil {
+		action = router.Match(destAddr)
+	}
+
+	switch action {
+	case routing.ActionBlock:
+		_, _ = conn.Write([]byte{0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0}) // Connection not allowed
+		return
+	case routing.ActionDirect:
+		localConn, err := net.DialTimeout("tcp", destAddr, 5*time.Second)
 		if err != nil {
 			_, _ = conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 			return
 		}
+		defer localConn.Close()
 		if _, err := conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
-			localConn.Close()
 			return
 		}
 		c.pipeBidirectional(conn, localConn)
 		return
-	}
+	case routing.ActionProxy:
+		// Open multiplexed stream with retry
+		stream, err := c.openStreamWithRetry(destAddr)
+		if err != nil {
+			c.Log(fmt.Sprintf("[Error] Tunnel unavailable for %s: %v", destAddr, err))
+			_, _ = conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+			return
+		}
+		defer stream.Close()
 
-	// Open multiplexed stream with retry
-	stream, err := c.openStreamWithRetry(destAddr)
-	if err != nil {
-		c.Log(fmt.Sprintf("[Error] Tunnel unavailable for %s: %v", destAddr, err))
-		_, _ = conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-		return
+		if _, err := conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
+			return
+		}
+		c.pipeBidirectional(conn, stream)
 	}
-	defer stream.Close()
-
-	// Tell SOCKS5 client: Success!
-	if _, err := conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
-		return
-	}
-
-	c.pipeBidirectional(conn, stream)
 }
 
 type clientUDPSession struct {
@@ -858,11 +990,21 @@ func (c *Client) handleSocksUDP(tcpConn net.Conn) {
 						copy(respPkt, sessObj.header)
 						copy(respPkt[len(sessObj.header):], pkt)
 
+						// Apply microsecond delay jitter on inbound UDP packets
+						if jitter := c.calculateUDPJitter(); jitter > 0 {
+							time.Sleep(jitter)
+						}
+
 						_, _ = udpConn.WriteTo(respPkt, client)
 					}
 				}(s, sessionKey, targetAddr)
 			}
 			sessionMu.Unlock()
+
+			// Apply microsecond delay jitter on outbound UDP packets
+			if jitter := c.calculateUDPJitter(); jitter > 0 {
+				time.Sleep(jitter)
+			}
 
 			// Send packet payload across the multiplexed stream
 			s.lastActive.Store(time.Now().Unix())
@@ -915,6 +1057,20 @@ func (c *Client) handleHttpClient(conn net.Conn) {
 			destAddr += ":443"
 		}
 	} else {
+		// Serve PAC script dynamically
+		if req.URL != nil && (req.URL.Path == "/pac" || req.URL.Path == "/proxy.pac") {
+			c.mu.RLock()
+			router := c.router
+			c.mu.RUnlock()
+			pacScript := ""
+			if router != nil {
+				pacScript = router.GeneratePAC(c.httpAddr)
+			}
+			w := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/x-ns-proxy-autoconfig\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", len(pacScript), pacScript)
+			_, _ = conn.Write([]byte(w))
+			return
+		}
+
 		host := req.URL.Host
 		if host == "" {
 			host = req.Host
@@ -931,15 +1087,31 @@ func (c *Client) handleHttpClient(conn net.Conn) {
 		Closer: conn,
 	}
 
-	// Bypass loopback / localhost directly for local tools (Antigravity, Electron, IDE)
+	// Route evaluation
+	c.mu.RLock()
+	router := c.router
+	c.mu.RUnlock()
+
+	var action routing.Action = routing.ActionProxy
 	if isLocalHost(destAddr) {
+		action = routing.ActionDirect
+	} else if router != nil {
+		action = router.Match(destAddr)
+	}
+
+	if action == routing.ActionBlock {
+		_, _ = conn.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
+		return
+	}
+
+	if action == routing.ActionDirect {
 		_, portStr, _ := net.SplitHostPort(destAddr)
-		if portStr == "10809" || portStr == "10808" || portStr == "18080" {
+		if isLocalHost(destAddr) && (portStr == "10809" || portStr == "10808" || portStr == "18080") {
 			_, _ = conn.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
 			return
 		}
 
-		localTarget, err := net.DialTimeout("tcp", destAddr, 3*time.Second)
+		localTarget, err := net.DialTimeout("tcp", destAddr, 5*time.Second)
 		if err != nil {
 			_, _ = conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 			return
@@ -1110,9 +1282,16 @@ func (c *Client) runPingMonitor() {
 	for range ticker.C {
 		c.mu.RLock()
 		running := c.running
+		hm := c.healthMonitor
 		addr := c.profile.ServerAddr
 		c.mu.RUnlock()
+
 		if !running || addr == "" {
+			continue
+		}
+
+		if hm != nil {
+			// HealthMonitor handles active HTTP 204 URL-testing through the tunnel
 			continue
 		}
 
@@ -1124,6 +1303,118 @@ func (c *Client) runPingMonitor() {
 			conn.Close()
 		}
 	}
+}
+
+func (c *Client) calculateUDPJitter() time.Duration {
+	c.mu.RLock()
+	maxJitter := c.udpJitterMax
+	enabled := c.udpObfs
+	c.mu.RUnlock()
+
+	if !enabled || maxJitter <= 0 {
+		return 0
+	}
+
+	maxMicros := maxJitter.Microseconds()
+	if maxMicros <= 0 {
+		return 0
+	}
+
+	rnd := protocol.RandomBytes(4)
+	val := binary.BigEndian.Uint32(rnd)
+	jitterMicros := int64(val) % (maxMicros + 1)
+	return time.Duration(jitterMicros) * time.Microsecond
+}
+
+// DialTunnel establishes a new multiplexed virtual connection through the active encrypted tunnel
+func (c *Client) DialTunnel(destAddr string) (net.Conn, error) {
+	c.mu.RLock()
+	dialer := c.tunnelDialer
+	c.mu.RUnlock()
+	if dialer != nil {
+		return dialer(destAddr)
+	}
+	return c.openStreamWithRetry(destAddr)
+}
+
+// SetTunnelDialer configures a custom tunnel dialer (useful for unit tests)
+func (c *Client) SetTunnelDialer(dialer func(destAddr string) (net.Conn, error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tunnelDialer = dialer
+}
+
+// GetServers returns a copy of configured server profiles
+func (c *Client) GetServers() []ServerProfile {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	res := make([]ServerProfile, len(c.servers))
+	copy(res, c.servers)
+	return res
+}
+
+// SetServers updates configured server profiles
+func (c *Client) SetServers(servers []ServerProfile) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.servers = make([]ServerProfile, len(servers))
+	copy(c.servers, servers)
+}
+
+// GetActiveGroupID returns current subscription group ID
+func (c *Client) GetActiveGroupID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.activeGroupID
+}
+
+// SetActiveGroupID updates active subscription group ID
+func (c *Client) SetActiveGroupID(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.activeGroupID = id
+}
+
+// GetSNIPoolManager returns the SNI pool manager
+func (c *Client) GetSNIPoolManager() *SNIPoolManager {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sniMgr
+}
+
+// SetUDPJitterMax configures maximum UDP timing jitter
+func (c *Client) SetUDPJitterMax(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.udpJitterMax = d
+}
+
+// SetUDPObfuscation toggles UDP obfuscation and jitter
+func (c *Client) SetUDPObfuscation(enable bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.udpObfs = enable
+}
+
+// StartHealthMonitor attaches and activates health monitoring and auto-failover
+func (c *Client) StartHealthMonitor(cfg HealthConfig, onSwitch SwitchCallback) HealthMonitor {
+	c.mu.Lock()
+	if c.healthMonitor != nil {
+		c.healthMonitor.Stop()
+	}
+	hm := NewHealthMonitor(c, cfg)
+	c.healthMonitor = hm
+	c.mu.Unlock()
+
+	hm.StartAutoFailover(onSwitch)
+	return hm
+}
+
+// GetHealthMonitor returns active health monitor if any
+func (c *Client) GetHealthMonitor() HealthMonitor {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.healthMonitor
 }
 
 // Log adds a message to the internal log buffer

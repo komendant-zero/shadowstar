@@ -13,6 +13,7 @@ import (
 	"github.com/shadowstar/shadowstar/pkg/config"
 	"github.com/shadowstar/shadowstar/pkg/i18n"
 	"github.com/shadowstar/shadowstar/pkg/sysproxy"
+	"github.com/shadowstar/shadowstar/pkg/tun"
 	"github.com/shadowstar/shadowstar/pkg/updater"
 )
 
@@ -61,6 +62,7 @@ type TUI struct {
 	historyDown    []float64
 	historyUp      []float64
 	sysProxyStatus bool
+	tunMgr         *tun.Manager
 	isPingingAll   bool
 	isUpdatingSub  bool
 
@@ -78,6 +80,7 @@ func New(cfgPath string, c *client.Client, cfg *client.Config) *TUI {
 		historyDown:    make([]float64, 0, 40),
 		historyUp:      make([]float64, 0, 40),
 		sysProxyStatus: sysproxy.GetSystemProxyStatus(),
+		tunMgr:         tun.NewManager(tun.DefaultConfig(), c, c.GetRouter(), nil),
 	}
 
 	// Match initial selection to active server within active group
@@ -290,6 +293,12 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 
 		case 's', 'S':
 			t.toggleSysProxy()
+
+		case 't', 'T':
+			t.toggleTUN()
+
+		case 'K':
+			t.toggleKillSwitch()
 
 		case 'p', 'P':
 			t.pingAllServers()
@@ -897,7 +906,50 @@ func (t *TUI) toast(msg string) {
 	t.toastTimer = 12 // ~3 seconds at 250ms ticks
 }
 
+func (t *TUI) toggleTUN() {
+	if t.tunMgr == nil {
+		t.tunMgr = tun.NewManager(tun.DefaultConfig(), t.client, t.client.GetRouter(), nil)
+	}
+	if t.tunMgr.IsRunning() {
+		_ = t.tunMgr.Stop()
+		t.toast(i18n.T("[TUN] Wintun L3 адаптер отключен", "[TUN] Wintun L3 adapter deactivated"))
+	} else {
+		if !t.stats.Connected {
+			if err := t.client.Start(); err != nil {
+				t.toast(fmt.Sprintf("[Ошибка] %v", err))
+				return
+			}
+			t.stats.Connected = true
+		}
+		p := t.client.GetProfile()
+		if err := t.tunMgr.Start(p.ServerAddr); err != nil {
+			t.toast(fmt.Sprintf("[TUN Ошибка] %v", err))
+			return
+		}
+		t.toast(i18n.T("[TUN] Wintun L3 адаптер успешно активирован!", "[TUN] Wintun L3 adapter active!"))
+	}
+}
+
+func (t *TUI) toggleKillSwitch() {
+	ks := tun.GetKillSwitch()
+	if ks.IsActive() {
+		_ = ks.Disable()
+		t.toast(i18n.T("[KillSwitch] Блокировка утечек отключена", "[KillSwitch] Leak protection disabled"))
+	} else {
+		p := t.client.GetProfile()
+		if err := ks.Enable(p.ServerAddr); err != nil {
+			t.toast(fmt.Sprintf("[KillSwitch Ошибка] %v", err))
+			return
+		}
+		t.toast(i18n.T("[KillSwitch] Аварийная защита от утечек активна!", "[KillSwitch] Emergency leak protection enabled!"))
+	}
+}
+
 func (t *TUI) cleanupAndExit() {
+	if t.tunMgr != nil && t.tunMgr.IsRunning() {
+		_ = t.tunMgr.Stop()
+	}
+	_ = tun.GetKillSwitch().Disable()
 	_ = t.client.Stop()
 	RestoreTerminal()
 	fmt.Println("\n⭐ ShadowStar TUI exited cleanly.")

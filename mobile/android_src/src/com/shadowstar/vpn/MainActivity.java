@@ -62,7 +62,7 @@ public class MainActivity extends Activity {
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
 
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new SafeWebChromeClient());
         webView.setWebViewClient(new SafeWebViewClient(this));
         webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
             try {
@@ -407,6 +407,17 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         stopVpnService();
+    }
+
+    private static class SafeWebChromeClient extends WebChromeClient {
+        @Override
+        public void onPermissionRequest(final android.webkit.PermissionRequest request) {
+            if (request != null) {
+                try {
+                    request.grant(request.getResources());
+                } catch (Throwable ignored) {}
+            }
+        }
     }
 
     private static class SafeWebViewClient extends WebViewClient {

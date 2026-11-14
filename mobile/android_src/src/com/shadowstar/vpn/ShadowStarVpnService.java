@@ -11,11 +11,16 @@ import android.os.Build;
 import android.os.ParcelFileDescriptor;
 
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 
 public class ShadowStarVpnService extends VpnService {
 
     private static final String CHANNEL_ID = "shadowstar_vpn_channel";
     private ParcelFileDescriptor vpnInterface;
+    private DatagramSocket relaySocket;
     private volatile boolean isRunning = false;
 
     @Override
@@ -70,6 +75,15 @@ public class ShadowStarVpnService extends VpnService {
 
             try {
                 builder.addDisallowedApplication(getPackageName());
+                android.content.SharedPreferences prefs = getSharedPreferences("shadowstar_prefs", MODE_PRIVATE);
+                java.util.Set<String> disallowed = prefs.getStringSet("disallowed_packages", null);
+                if (disallowed != null) {
+                    for (String pkg : disallowed) {
+                        try {
+                            builder.addDisallowedApplication(pkg);
+                        } catch (Throwable ignored) {}
+                    }
+                }
             } catch (Throwable ignored) {
             }
 
@@ -79,26 +93,69 @@ public class ShadowStarVpnService extends VpnService {
                 } catch (Throwable ignored) {
                 }
             }
-            builder.addRoute("10.254.1.0", 24);
+            builder.addRoute("0.0.0.0", 0);
 
             builder.addDnsServer("1.1.1.1");
             builder.addDnsServer("8.8.8.8");
             builder.setMtu(1500);
-            builder.setBlocking(false);
+            builder.setBlocking(true);
 
             vpnInterface = builder.establish();
+            ShadowStarTileService.isVpnActive = true;
 
             if (vpnInterface != null) {
-                new Thread(() -> {
-                    try (FileInputStream in = new FileInputStream(vpnInterface.getFileDescriptor())) {
-                        byte[] packet = new byte[32768];
-                        while (isRunning && vpnInterface != null) {
-                            int len = in.read(packet);
-                            if (len <= 0) break;
+                try {
+                    relaySocket = new DatagramSocket();
+                    try {
+                        protect(relaySocket);
+                    } catch (Throwable ignored) {}
+
+                    final DatagramSocket sock = relaySocket;
+                    final InetAddress loopback = InetAddress.getByName("127.0.0.1");
+                    final int relayPort = 10811;
+
+                    // Thread 1: Read L3 IP packets from Android TUN -> forward to Go NetStack
+                    new Thread(() -> {
+                        try (FileInputStream in = new FileInputStream(vpnInterface.getFileDescriptor())) {
+                            byte[] packet = new byte[32768];
+                            while (isRunning && vpnInterface != null && !sock.isClosed()) {
+                                int len = in.read(packet);
+                                if (len <= 0) continue;
+                                DatagramPacket dp = new DatagramPacket(packet, len, loopback, relayPort);
+                                sock.send(dp);
+                            }
+                        } catch (Throwable ignored) {
                         }
-                    } catch (Throwable ignored) {
-                    }
-                }).start();
+                    }, "ShadowStar-TunReader").start();
+
+                    // Thread 2: Read processed response IP packets from Go NetStack -> inject into Android TUN
+                    new Thread(() -> {
+                        try (FileOutputStream out = new FileOutputStream(vpnInterface.getFileDescriptor())) {
+                            byte[] respBuf = new byte[32768];
+                            DatagramPacket respPkt = new DatagramPacket(respBuf, respBuf.length);
+                            while (isRunning && vpnInterface != null && !sock.isClosed()) {
+                                sock.receive(respPkt);
+                                int len = respPkt.getLength();
+                                if (len > 0) {
+                                    out.write(respPkt.getData(), 0, len);
+                                }
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                    }, "ShadowStar-TunWriter").start();
+
+                } catch (Throwable t) {
+                    // Fallback packet drainer
+                    new Thread(() -> {
+                        try (FileInputStream in = new FileInputStream(vpnInterface.getFileDescriptor())) {
+                            byte[] packet = new byte[32768];
+                            while (isRunning && vpnInterface != null) {
+                                int len = in.read(packet);
+                                if (len <= 0) break;
+                            }
+                        } catch (Throwable ignored) {}
+                    }).start();
+                }
             }
         } catch (Throwable t) {
             stopVpn();
@@ -107,6 +164,13 @@ public class ShadowStarVpnService extends VpnService {
 
     private void stopVpn() {
         isRunning = false;
+        ShadowStarTileService.isVpnActive = false;
+        if (relaySocket != null) {
+            try {
+                relaySocket.close();
+            } catch (Throwable ignored) {}
+            relaySocket = null;
+        }
         if (vpnInterface != null) {
             try {
                 vpnInterface.close();

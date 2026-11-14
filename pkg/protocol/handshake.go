@@ -13,26 +13,60 @@ import (
 )
 
 const (
-	TLSRecordHandshake     = 0x16
-	TLSVersion10           = 0x0301
-	TLSVersion12           = 0x0303
-	TLSVersion13           = 0x0304
+	TLSRecordHandshake      = 0x16
+	TLSVersion10            = 0x0301
+	TLSVersion12            = 0x0303
+	TLSVersion13            = 0x0304
 	TLSHandshakeClientHello = 0x01
 	TLSHandshakeServerHello = 0x02
 
-	ExtServerName         = 0x0000
-	ExtSupportedGroups    = 0x000a
-	ExtSignatureAlgorithms = 0x000d
-	ExtALPN               = 0x0010
-	ExtKeyShare           = 0x0033
-	ExtSupportedVersions  = 0x002b
-	ExtPadding            = 0x0015
+	ExtServerName           = 0x0000
+	ExtStatusRequest        = 0x0005 // RFC 6066
+	ExtSupportedGroups      = 0x000a
+	ExtECPointFormats       = 0x000b // RFC 8422
+	ExtSignatureAlgorithms  = 0x000d
+	ExtALPN                 = 0x0010
+	ExtSCT                  = 0x0012 // RFC 6962
+	ExtPadding              = 0x0015
+	ExtExtendedMasterSecret = 0x0017 // RFC 7627
+	ExtCompressCertificate  = 0x001b // RFC 8879
+	ExtSessionTicket        = 0x0023 // RFC 5077
+	ExtSupportedVersions    = 0x002b
+	ExtPSKKeyExchangeModes  = 0x002d // RFC 8446
+	ExtKeyShare             = 0x0033
+	ExtApplicationSettings  = 0x4469 // ALPS (17513)
+	ExtRenegotiationInfo    = 0xff01 // RFC 5746 (65281)
 
-	GroupX25519 = 0x001d
+	GroupSecp256r1      = 0x0017
+	GroupSecp384r1      = 0x0018
+	GroupX25519         = 0x001d
+	GroupX25519Kyber768 = 0x6399 // X25519Kyber768Draft00
+	GroupX25519MLKEM768 = 0x11ec // X25519MLKEM768
+
+	Kyber768PubKeyLen      = 1184
+	Kyber768HybridShareLen = 1216 // 1184 + 32
 
 	AuthTagLen = 16
 	AuthWindow = 900 // seconds validity window for handshake replay defense (15 minutes)
 )
+
+var greaseValues = [...]uint16{
+	0x0a0a, 0x1a1a, 0x2a2a, 0x3a3a,
+	0x4a4a, 0x5a5a, 0x6a6a, 0x7a7a,
+	0x8a8a, 0x9a9a, 0xaaaa, 0xbaba,
+	0xcaca, 0xdada, 0xeaea, 0xfafa,
+}
+
+// RandomGREASE returns a pseudorandom RFC 8701 GREASE value
+func RandomGREASE() uint16 {
+	b := RandomBytes(1)
+	return greaseValues[int(b[0]&0x0f)]
+}
+
+// IsGREASE checks if a uint16 is an RFC 8701 GREASE value
+func IsGREASE(val uint16) bool {
+	return (val&0x0f0f) == 0x0a0a && (val>>8) == (val&0xff)
+}
 
 // HandshakeAuth holds authentication payload embedded in TLS SessionID
 type HandshakeAuth struct {
@@ -149,7 +183,7 @@ func VerifyAuthSessionIDInternal(sessionID, masterKey, clientPub []byte, sni str
 	return true
 }
 
-// BuildClientHello constructs a fully standard-compliant TLS 1.3 ClientHello packet
+// BuildClientHello constructs a Chrome (120-133) JA3/JA4 fingerprint-compliant TLS 1.3 ClientHello packet
 func BuildClientHello(sni string, masterKey []byte, clientPub []byte, paddingLen int, timeOffsetSec int64) ([]byte, error) {
 	sessionID, err := BuildAuthSessionID(masterKey, clientPub, sni, timeOffsetSec)
 	if err != nil {
@@ -158,7 +192,11 @@ func BuildClientHello(sni string, masterKey []byte, clientPub []byte, paddingLen
 
 	var extensions bytes.Buffer
 
-	// 1. SNI Extension
+	// 1. GREASE Extension 1 (RFC 8701)
+	greaseExt1 := RandomGREASE()
+	writeExtension(&extensions, greaseExt1, nil)
+
+	// 2. SNI Extension (RFC 6066)
 	sniBytes := []byte(sni)
 	sniData := make([]byte, len(sniBytes)+5)
 	binary.BigEndian.PutUint16(sniData[0:2], uint16(len(sniBytes)+3))
@@ -167,23 +205,30 @@ func BuildClientHello(sni string, masterKey []byte, clientPub []byte, paddingLen
 	copy(sniData[5:], sniBytes)
 	writeExtension(&extensions, ExtServerName, sniData)
 
-	// 2. Supported Versions (TLS 1.3, TLS 1.2)
-	writeExtension(&extensions, ExtSupportedVersions, []byte{0x04, 0x03, 0x04, 0x03, 0x03})
+	// 3. Extended Master Secret (RFC 7627)
+	writeExtension(&extensions, ExtExtendedMasterSecret, nil)
 
-	// 3. Supported Groups (X25519, secp256r1)
-	writeExtension(&extensions, ExtSupportedGroups, []byte{0x00, 0x04, 0x00, 0x1d, 0x00, 0x17})
+	// 4. Renegotiation Info (RFC 5746)
+	writeExtension(&extensions, ExtRenegotiationInfo, []byte{0x00})
 
-	// 4. Signature Algorithms
-	sigAlgs := []byte{
-		0x00, 0x08,
-		0x04, 0x03, // ecdsa_secp256r1_sha256
-		0x08, 0x04, // rsa_pss_rsae_sha256
-		0x04, 0x01, // rsa_pkcs1_sha256
-		0x05, 0x01, // rsa_pkcs1_sha384
-	}
-	writeExtension(&extensions, ExtSignatureAlgorithms, sigAlgs)
+	// 5. Supported Groups (RFC 8422 & RFC 8701: GREASE, X25519Kyber768, X25519, secp256r1, secp384r1)
+	greaseGroup := RandomGREASE()
+	groupsData := make([]byte, 2+2*5)
+	binary.BigEndian.PutUint16(groupsData[0:2], uint16(2*5))
+	binary.BigEndian.PutUint16(groupsData[2:4], greaseGroup)
+	binary.BigEndian.PutUint16(groupsData[4:6], GroupX25519Kyber768)
+	binary.BigEndian.PutUint16(groupsData[6:8], GroupX25519)
+	binary.BigEndian.PutUint16(groupsData[8:10], GroupSecp256r1)
+	binary.BigEndian.PutUint16(groupsData[10:12], GroupSecp384r1)
+	writeExtension(&extensions, ExtSupportedGroups, groupsData)
 
-	// 5. ALPN (h2, http/1.1)
+	// 6. EC Point Formats (RFC 8422)
+	writeExtension(&extensions, ExtECPointFormats, []byte{0x01, 0x00})
+
+	// 7. Session Ticket (RFC 5077)
+	writeExtension(&extensions, ExtSessionTicket, nil)
+
+	// 8. ALPN (RFC 7301: h2, http/1.1)
 	alpnData := []byte{
 		0x00, 0x0c,
 		0x02, 'h', '2',
@@ -191,15 +236,80 @@ func BuildClientHello(sni string, masterKey []byte, clientPub []byte, paddingLen
 	}
 	writeExtension(&extensions, ExtALPN, alpnData)
 
-	// 6. Key Share (X25519)
-	keyShareData := make([]byte, 2+2+2+len(clientPub))
-	binary.BigEndian.PutUint16(keyShareData[0:2], uint16(4+len(clientPub)))
-	binary.BigEndian.PutUint16(keyShareData[2:4], GroupX25519)
-	binary.BigEndian.PutUint16(keyShareData[4:6], uint16(len(clientPub)))
-	copy(keyShareData[6:], clientPub)
+	// 9. Status Request (OCSP stapling - RFC 6066)
+	writeExtension(&extensions, ExtStatusRequest, []byte{0x01, 0x00, 0x00, 0x00, 0x00})
+
+	// 10. Signature Algorithms (RFC 8446 Chrome schemes list)
+	sigAlgs := []byte{
+		0x00, 0x10,
+		0x04, 0x03, // ecdsa_secp256r1_sha256
+		0x08, 0x04, // rsa_pss_rsae_sha256
+		0x04, 0x01, // rsa_pkcs1_sha256
+		0x05, 0x03, // ecdsa_secp384r1_sha384
+		0x08, 0x05, // rsa_pss_rsae_sha384
+		0x05, 0x01, // rsa_pkcs1_sha384
+		0x08, 0x06, // rsa_pss_rsae_sha512
+		0x06, 0x01, // rsa_pkcs1_sha512
+	}
+	writeExtension(&extensions, ExtSignatureAlgorithms, sigAlgs)
+
+	// 11. Signed Certificate Timestamps (SCT - RFC 6962)
+	writeExtension(&extensions, ExtSCT, nil)
+
+	// 12. Key Share (GREASE share + X25519Kyber768 hybrid share + classic X25519 share)
+	// Share 1: GREASE (group: RandomGREASE(), len: 1, data: 0x00) -> 2 + 2 + 1 = 5 bytes
+	// Share 2: Post-Quantum Hybrid (group: GroupX25519Kyber768, len: 1216, data: 1184B Kyber + 32B X25519) -> 2 + 2 + 1216 = 1220 bytes
+	// Share 3: Classic X25519 (group: GroupX25519, len: 32, data: clientPub) -> 2 + 2 + 32 = 36 bytes
+	totalSharesLen := 5 + 1220 + 36
+	keyShareData := make([]byte, 2+totalSharesLen)
+	binary.BigEndian.PutUint16(keyShareData[0:2], uint16(totalSharesLen))
+	off := 2
+
+	// Share 1: GREASE
+	greaseShareGroup := RandomGREASE()
+	binary.BigEndian.PutUint16(keyShareData[off:off+2], greaseShareGroup)
+	binary.BigEndian.PutUint16(keyShareData[off+2:off+4], 1)
+	keyShareData[off+4] = 0x00
+	off += 5
+
+	// Share 2: Kyber768 Hybrid
+	binary.BigEndian.PutUint16(keyShareData[off:off+2], GroupX25519Kyber768)
+	binary.BigEndian.PutUint16(keyShareData[off+2:off+4], Kyber768HybridShareLen)
+	off += 4
+	kyberPart := RandomBytes(Kyber768PubKeyLen)
+	copy(keyShareData[off:off+Kyber768PubKeyLen], kyberPart)
+	copy(keyShareData[off+Kyber768PubKeyLen:off+Kyber768HybridShareLen], clientPub)
+	off += Kyber768HybridShareLen
+
+	// Share 3: Classic X25519
+	binary.BigEndian.PutUint16(keyShareData[off:off+2], GroupX25519)
+	binary.BigEndian.PutUint16(keyShareData[off+2:off+4], uint16(len(clientPub)))
+	off += 4
+	copy(keyShareData[off:off+len(clientPub)], clientPub)
+	off += len(clientPub)
+
 	writeExtension(&extensions, ExtKeyShare, keyShareData)
 
-	// 7. Dynamic Padding Extension (to randomize packet sizes & defeat length profiling)
+	// 13. PSK Key Exchange Modes (RFC 8446)
+	writeExtension(&extensions, ExtPSKKeyExchangeModes, []byte{0x01, 0x01})
+
+	// 14. Supported Versions (GREASE, TLS 1.3, TLS 1.2)
+	greaseVer := RandomGREASE()
+	verData := []byte{
+		0x06,
+		byte(greaseVer >> 8), byte(greaseVer & 0xff),
+		0x03, 0x04, // TLS 1.3
+		0x03, 0x03, // TLS 1.2
+	}
+	writeExtension(&extensions, ExtSupportedVersions, verData)
+
+	// 15. Compress Certificate (Brotli - RFC 8879)
+	writeExtension(&extensions, ExtCompressCertificate, []byte{0x02, 0x00, 0x02})
+
+	// 16. Application Settings (ALPS for h2)
+	writeExtension(&extensions, ExtApplicationSettings, []byte{0x00, 0x03, 0x02, 'h', '2'})
+
+	// 17. Dynamic Padding Extension (clamped to [16, 256])
 	if paddingLen < 16 {
 		paddingLen = 16
 	}
@@ -208,6 +318,10 @@ func BuildClientHello(sni string, masterKey []byte, clientPub []byte, paddingLen
 	}
 	padBytes := make([]byte, paddingLen)
 	writeExtension(&extensions, ExtPadding, padBytes)
+
+	// 18. GREASE Extension 2 (RFC 8701)
+	greaseExt2 := RandomGREASE()
+	writeExtension(&extensions, greaseExt2, []byte{0x00})
 
 	// Assemble ClientHello body
 	var body bytes.Buffer
@@ -219,14 +333,26 @@ func BuildClientHello(sni string, masterKey []byte, clientPub []byte, paddingLen
 	body.WriteByte(byte(len(sessionID)))
 	body.Write(sessionID)
 
-	// Cipher Suites (standard Chrome/Firefox TLS 1.3 list)
+	// Cipher Suites (16 suites matching Chrome JA3/JA4 fingerprint with leading GREASE)
+	greaseCipher := RandomGREASE()
 	ciphers := []byte{
-		0x00, 0x0a,
+		0x00, 0x20, // 32 bytes = 16 cipher suites
+		byte(greaseCipher >> 8), byte(greaseCipher & 0xff),
 		0x13, 0x01, // TLS_AES_128_GCM_SHA256
 		0x13, 0x02, // TLS_AES_256_GCM_SHA384
 		0x13, 0x03, // TLS_CHACHA20_POLY1305_SHA256
 		0xc0, 0x2b, // ECDHE-ECDSA-AES128-GCM-SHA256
 		0xc0, 0x2f, // ECDHE-RSA-AES128-GCM-SHA256
+		0xc0, 0x2c, // ECDHE-ECDSA-AES256-GCM-SHA384
+		0xc0, 0x30, // ECDHE-RSA-AES256-GCM-SHA384
+		0xcc, 0xa9, // ECDHE-ECDSA-CHACHA20-POLY1305
+		0xcc, 0xa8, // ECDHE-RSA-CHACHA20-POLY1305
+		0xc0, 0x13, // ECDHE-RSA-AES128-SHA
+		0xc0, 0x14, // ECDHE-RSA-AES256-SHA
+		0x00, 0x9c, // RSA-AES128-GCM-SHA256
+		0x00, 0x9d, // RSA-AES256-GCM-SHA384
+		0x00, 0x2f, // RSA-AES128-SHA
+		0x00, 0x35, // RSA-AES256-SHA
 	}
 	body.Write(ciphers)
 
@@ -300,7 +426,9 @@ func BuildServerHello(serverPub []byte, sessionID []byte) []byte {
 func writeExtension(buf *bytes.Buffer, extType uint16, data []byte) {
 	binary.Write(buf, binary.BigEndian, extType)
 	binary.Write(buf, binary.BigEndian, uint16(len(data)))
-	buf.Write(data)
+	if len(data) > 0 {
+		buf.Write(data)
+	}
 }
 
 // ParsedClientHello holds extracted handshake data
@@ -411,9 +539,16 @@ func ParseClientHello(raw []byte) (*ParsedClientHello, error) {
 					group := binary.BigEndian.Uint16(shares[shareOff : shareOff+2])
 					keyLen := int(binary.BigEndian.Uint16(shares[shareOff+2 : shareOff+4]))
 					shareOff += 4
-					if shareOff+keyLen <= len(shares) && group == GroupX25519 && keyLen == 32 {
-						parsed.ClientPub = shares[shareOff : shareOff+keyLen]
-						break
+					if shareOff+keyLen <= len(shares) {
+						if group == GroupX25519 && keyLen == 32 {
+							parsed.ClientPub = shares[shareOff : shareOff+keyLen]
+							break
+						} else if (group == GroupX25519Kyber768 || group == GroupX25519MLKEM768) && keyLen == Kyber768HybridShareLen {
+							if parsed.ClientPub == nil {
+								// Extract trailing 32 bytes X25519 public key from the 1216B hybrid share
+								parsed.ClientPub = shares[shareOff+Kyber768PubKeyLen : shareOff+keyLen]
+							}
+						}
 					}
 					shareOff += keyLen
 				}

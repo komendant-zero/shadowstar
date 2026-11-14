@@ -116,6 +116,47 @@ foreach ($val in @('DefaultConnectionSettings', 'SavedLegacySettings')) {
 	return nil
 }
 
+// SetSystemPAC configures Windows WinINet to use an automatic proxy configuration script (PAC URL)
+func SetSystemPAC(pacURL string) error {
+	if pacURL == "" {
+		return fmt.Errorf("empty PAC URL")
+	}
+
+	cmd := exec.Command("reg", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`, "/v", "AutoConfigURL", "/t", "REG_SZ", "/d", pacURL, "/f")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to set AutoConfigURL: %w", err)
+	}
+
+	psScript := `$connPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Connections'
+foreach ($val in @('DefaultConnectionSettings', 'SavedLegacySettings')) {
+    $item = Get-ItemProperty -Path $connPath -Name $val -ErrorAction SilentlyContinue
+    if ($item) {
+        $b = $item.$val
+        if ($b -and $b.Length -gt 8) {
+            $b[8] = [byte]5
+            Set-ItemProperty -Path $connPath -Name $val -Value $b -Type Binary -ErrorAction SilentlyContinue
+        }
+    }
+}`
+	psCmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psScript)
+	psCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	_ = psCmd.Run()
+
+	notifyWinINet()
+	return nil
+}
+
+// ClearSystemPAC removes the AutoConfigURL setting and refreshes WinINet
+func ClearSystemPAC() error {
+	cmd := exec.Command("reg", "delete", `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`, "/v", "AutoConfigURL", "/f")
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	_ = cmd.Run()
+
+	notifyWinINet()
+	return nil
+}
+
 // GetSystemProxyStatus checks whether the system proxy is currently enabled
 func GetSystemProxyStatus() bool {
 	out, err := exec.Command("reg", "query", `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`, "/v", "ProxyEnable").Output()

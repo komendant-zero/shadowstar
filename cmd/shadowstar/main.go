@@ -14,12 +14,14 @@ import (
 	"github.com/shadowstar/shadowstar/pkg/config"
 	"github.com/shadowstar/shadowstar/pkg/gui"
 	"github.com/shadowstar/shadowstar/pkg/sysproxy"
+	"github.com/shadowstar/shadowstar/pkg/tray"
 	"github.com/shadowstar/shadowstar/pkg/tui"
+	"github.com/shadowstar/shadowstar/pkg/tun"
 	"github.com/shadowstar/shadowstar/pkg/updater"
 )
 
 var (
-	version = "1.4.3-stealth"
+	version = "2.0.0-stealth"
 )
 
 func main() {
@@ -38,6 +40,9 @@ func main() {
 	keyFlag := flag.String("key", "", "Master key to connect or override active node")
 	serverFlag := flag.String("server", "", "Remote server address (host:port)")
 	doUpdate := flag.Bool("update", false, "Check for updates and apply latest release from GitHub")
+	useTray := flag.Bool("tray", false, "Enable Windows system tray icon with context menu")
+	useTun := flag.Bool("tun", false, "Activate native L3 TUN mode on startup")
+	useKillSwitch := flag.Bool("killswitch", false, "Activate emergency leak prevention Kill Switch on startup")
 	flag.Parse()
 
 	if *showVersion {
@@ -263,6 +268,8 @@ func main() {
 		log.Fatalf("Failed to initialize client: %v", err)
 	}
 
+	tunMgr := tun.NewManager(tun.DefaultConfig(), c, c.GetRouter(), nil)
+
 	if *headless {
 		fmt.Println("=====================================================")
 		fmt.Printf("  ⭐ SHADOWSTAR CLIENT v%s (Headless Mode)\n", version)
@@ -278,12 +285,96 @@ func main() {
 			}
 		}
 
+		if *useTun {
+			if err := tunMgr.Start(activeProfile.ServerAddr); err != nil {
+				log.Printf("[TUN] Failed to activate Wintun adapter: %v", err)
+			} else {
+				log.Printf("[TUN] Wintun L3 adapter active!")
+			}
+		}
+
+		if *useKillSwitch {
+			if err := tun.GetKillSwitch().Enable(activeProfile.ServerAddr); err != nil {
+				log.Printf("[KillSwitch] Failed to enable: %v", err)
+			} else {
+				log.Printf("[KillSwitch] Emergency leak protection enabled!")
+			}
+		}
+
+		var trayApp *tray.TrayApp
+		if *useTray {
+			trayApp = tray.New(tray.Handlers{
+				OnConnectToggle: func() {
+					if c.GetStats().Connected {
+						_ = c.Stop()
+					} else {
+						_ = c.Start()
+					}
+				},
+				OnSysProxyToggle: func() {
+					if sysproxy.GetSystemProxyStatus() {
+						_ = sysproxy.ClearSystemProxy()
+					} else {
+						_ = sysproxy.SetSystemProxy(cfg.HttpAddr)
+					}
+				},
+				OnTunToggle: func() {
+					if tunMgr.IsRunning() {
+						_ = tunMgr.Stop()
+					} else {
+						_ = tunMgr.Start(c.GetProfile().ServerAddr)
+					}
+				},
+				OnKillSwitchToggle: func() {
+					ks := tun.GetKillSwitch()
+					if ks.IsActive() {
+						_ = ks.Disable()
+					} else {
+						_ = ks.Enable(c.GetProfile().ServerAddr)
+					}
+				},
+				OnOpenWeb: func() {
+					tray.OpenBrowser("http://127.0.0.1:18080")
+				},
+				OnExit: func() {
+					_ = tunMgr.Stop()
+					_ = tun.GetKillSwitch().Disable()
+					_ = sysproxy.ClearSystemProxy()
+					_ = c.Stop()
+					os.Exit(0)
+				},
+				IsConnected: func() bool {
+					return c.GetStats().Connected
+				},
+				IsSysProxy: func() bool {
+					return sysproxy.GetSystemProxyStatus()
+				},
+				IsTun: func() bool {
+					return tunMgr.IsRunning()
+				},
+				IsKillSwitch: func() bool {
+					return tun.GetKillSwitch().IsActive()
+				},
+				GetActiveNode: func() string {
+					return c.GetProfile().Name
+				},
+			})
+			_ = trayApp.Start()
+		}
+
 		// Trap SIGINT / SIGTERM for clean shutdown
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 		<-sigChan
 
 		fmt.Println("\n[ShadowStar] Gracefully shutting down...")
+		if trayApp != nil {
+			trayApp.Stop()
+		}
+		if tunMgr.IsRunning() {
+			_ = tunMgr.Stop()
+		}
+		_ = tun.GetKillSwitch().Disable()
 		_ = sysproxy.ClearSystemProxy()
 		_ = c.Stop()
 		return

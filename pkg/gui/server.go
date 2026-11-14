@@ -21,6 +21,7 @@ import (
 	"github.com/shadowstar/shadowstar/pkg/client"
 	"github.com/shadowstar/shadowstar/pkg/config"
 	"github.com/shadowstar/shadowstar/pkg/sysproxy"
+	"github.com/shadowstar/shadowstar/pkg/tun"
 )
 
 //go:embed assets/*
@@ -30,6 +31,7 @@ var assetsFS embed.FS
 type GUIServer struct {
 	client     *client.Client
 	cfg        *client.Config
+	tunMgr     *tun.Manager
 	configPath string
 	mu         sync.Mutex
 	listener   net.Listener
@@ -92,6 +94,8 @@ func (g *GUIServer) Start() error {
 	mux.HandleFunc("/api/servers/delete", g.handleDeleteServer)
 	mux.HandleFunc("/api/servers/ping", g.handlePingServer)
 	mux.HandleFunc("/api/servers/export", g.handleExportServer)
+	mux.HandleFunc("/api/tun", g.handleTun)
+	mux.HandleFunc("/api/killswitch", g.handleKillSwitch)
 	mux.HandleFunc("/api/logs", g.handleLogs)
 	mux.HandleFunc("/api/shutdown", g.handleShutdown)
 
@@ -235,6 +239,10 @@ func (g *GUIServer) WaitForExit(cmd *exec.Cmd) {
 		<-sigChan
 	}
 
+	if g.tunMgr != nil && g.tunMgr.IsRunning() {
+		_ = g.tunMgr.Stop()
+	}
+	_ = tun.GetKillSwitch().Disable()
 	_ = sysproxy.ClearSystemProxy()
 	_ = g.client.Stop()
 }
@@ -249,6 +257,8 @@ type StatusResponse struct {
 	ConnectedTime    int64   `json:"connected_time"`
 	Latency          int     `json:"latency"`
 	SysProxy         bool    `json:"sysproxy_enabled"`
+	TunActive        bool    `json:"tun_active"`
+	KillSwitchActive bool    `json:"killswitch_active"`
 	AWGActive        bool    `json:"awg_active"`
 	ActiveServerName string  `json:"active_server_name"`
 	ActiveServerAddr string  `json:"active_server_addr"`
@@ -272,6 +282,8 @@ func (g *GUIServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ConnectedTime:    stats.ConnectedTime,
 		Latency:          stats.Latency,
 		SysProxy:         sysproxy.GetSystemProxyStatus(),
+		TunActive:        g.tunMgr != nil && g.tunMgr.IsRunning(),
+		KillSwitchActive: tun.GetKillSwitch().IsActive(),
 		AWGActive:        isAWGActive(),
 		ActiveServerName: active.Name,
 		ActiveServerAddr: active.ServerAddr,
@@ -311,12 +323,20 @@ func (g *GUIServer) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if g.tunMgr != nil && g.tunMgr.IsRunning() {
+		_ = g.tunMgr.Stop()
+	}
+	_ = tun.GetKillSwitch().Disable()
 	_ = sysproxy.ClearSystemProxy()
 	_ = g.client.Stop()
 	w.WriteHeader(http.StatusOK)
 }
 
 func (g *GUIServer) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	if g.tunMgr != nil && g.tunMgr.IsRunning() {
+		_ = g.tunMgr.Stop()
+	}
+	_ = tun.GetKillSwitch().Disable()
 	_ = sysproxy.ClearSystemProxy()
 	_ = g.client.Stop()
 	w.WriteHeader(http.StatusOK)
@@ -350,6 +370,62 @@ func (g *GUIServer) handleSysProxy(w http.ResponseWriter, r *http.Request) {
 		_ = sysproxy.ClearSystemProxy()
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func (g *GUIServer) handleTun(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodGet {
+		active := g.tunMgr != nil && g.tunMgr.IsRunning()
+		_ = json.NewEncoder(w).Encode(map[string]any{"active": active})
+		return
+	}
+	if r.Method == http.MethodPost {
+		if g.tunMgr == nil {
+			g.tunMgr = tun.NewManager(tun.DefaultConfig(), g.client, g.client.GetRouter(), nil)
+		}
+		if g.tunMgr.IsRunning() {
+			_ = g.tunMgr.Stop()
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": false, "message": "TUN mode deactivated"})
+		} else {
+			if !g.client.GetStats().Connected {
+				_ = g.client.Start()
+			}
+			p := g.client.GetProfile()
+			if err := g.tunMgr.Start(p.ServerAddr); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": true, "message": "Wintun L3 adapter active"})
+		}
+		return
+	}
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (g *GUIServer) handleKillSwitch(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	ks := tun.GetKillSwitch()
+	if r.Method == http.MethodGet {
+		_ = json.NewEncoder(w).Encode(map[string]any{"active": ks.IsActive()})
+		return
+	}
+	if r.Method == http.MethodPost {
+		if ks.IsActive() {
+			_ = ks.Disable()
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": false, "message": "Kill Switch disabled"})
+		} else {
+			p := g.client.GetProfile()
+			if err := ks.Enable(p.ServerAddr); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"active": true, "message": "Kill Switch enabled"})
+		}
+		return
+	}
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
 func (g *GUIServer) handleServers(w http.ResponseWriter, r *http.Request) {

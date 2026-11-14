@@ -5,6 +5,7 @@
 *-personal.*
 personal/
 run-personal*.bat
+launch-all.*
 
 # ==============================================================================
 # COMPILED BINARIES & ARTIFACTS

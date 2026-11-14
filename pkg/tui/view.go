@@ -8,6 +8,7 @@ import (
 
 	"github.com/shadowstar/shadowstar/pkg/client"
 	"github.com/shadowstar/shadowstar/pkg/i18n"
+	"github.com/shadowstar/shadowstar/pkg/tun"
 	"github.com/shadowstar/shadowstar/pkg/updater"
 )
 
@@ -76,7 +77,7 @@ func (t *TUI) renderHeader(w int) string {
 	sb.WriteString("┌" + strings.Repeat("─", w) + "┐\n")
 
 	// Title + Status Badge + Lang Badge
-	title := BrightCyan(Bold("◈ SHADOWSTAR (SSP)")) + Dim(" • Anti-DPI Stealth Proxy v1.4.1")
+	title := BrightCyan(Bold("◈ SHADOWSTAR (SSP)")) + Dim(" • Anti-DPI Stealth Proxy v2.0.0")
 	
 	statusBadge := ""
 	if t.stats.Connected {
@@ -147,12 +148,22 @@ func (t *TUI) renderDashboard(w int) string {
 		sysProxyStr = BrightGreen("[ACTIVE]")
 	}
 
+	tunStr := Gray("[OFF]")
+	if t.tunMgr != nil && t.tunMgr.IsRunning() {
+		tunStr = BrightGreen("[ACTIVE]")
+	}
+
+	ksStr := Gray("[OFF]")
+	if tun.GetKillSwitch().IsActive() {
+		ksStr = BrightYellow("[ON]")
+	}
+
 	l2Left := fmt.Sprintf(" %s Reality (%s) | Chunker: %s",
 		Magenta("◆ "+i18n.T("Защита:", "Shield:")),
 		BrightCyan(active.SNI),
 		chunkerStr,
 	)
-	l2Right := fmt.Sprintf("%s: %s ", i18n.T("Прокси", "Proxy"), sysProxyStr)
+	l2Right := fmt.Sprintf("TUN: %s | KS: %s | %s: %s ", tunStr, ksStr, i18n.T("Прокси", "Proxy"), sysProxyStr)
 	sb.WriteString(t.formatLine(l2Left, l2Right, w))
 	sb.WriteString("\n")
 
@@ -530,9 +541,13 @@ func (t *TUI) renderFooter(w int) string {
 	qKey := BrightCyan("[Q]")
 	qText := i18n.T("Выход", "Quit")
 
+	tKey := BrightCyan("[T]")
+	tText := "TUN"
+
 	var items []string
 	items = append(items, grpKey+" "+grpText)
 	items = append(items, cKey+" "+cText)
+	items = append(items, tKey+" "+tText)
 	items = append(items, uKey+" "+uText)
 	items = append(items, eKey+" "+eText)
 	items = append(items, xKey+" "+xText)

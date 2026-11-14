@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"encoding/binary"
 	"net"
 	"testing"
 )
@@ -163,5 +164,185 @@ func TestTargetAddressSerialization(t *testing.T) {
 	}
 	if parsedUDP.String() != originalUDP {
 		t.Fatalf("Expected %s, got %s", originalUDP, parsedUDP.String())
+	}
+}
+
+func TestGREASEGenerationAndDetection(t *testing.T) {
+	// 1. Verify all 16 RFC 8701 GREASE values match IsGREASE
+	for _, val := range greaseValues {
+		if !IsGREASE(val) {
+			t.Errorf("greaseValue 0x%04x not recognized as GREASE", val)
+		}
+	}
+
+	// 2. Verify RandomGREASE produces valid GREASE values
+	for i := 0; i < 50; i++ {
+		g := RandomGREASE()
+		if !IsGREASE(g) {
+			t.Fatalf("RandomGREASE produced invalid value: 0x%04x", g)
+		}
+	}
+
+	// 3. Verify standard non-GREASE values return false
+	nonGrease := []uint16{
+		0x0000, 0x001d, 0x1301, 0x1302, 0x1303, 0xc02f, 0xc030,
+		0x0303, 0x0304, 0x002b, 0x0033, 0x6399, 0x11ec,
+	}
+	for _, ng := range nonGrease {
+		if IsGREASE(ng) {
+			t.Errorf("Standard value 0x%04x incorrectly identified as GREASE", ng)
+		}
+	}
+}
+
+func TestClientHello_ChromeGREASEAndKyberShares(t *testing.T) {
+	masterKey := []byte("01234567890123456789012345678901")
+	sni := "cp.cloudflare.com"
+
+	_, pub, err := GenerateX25519KeyPair()
+	if err != nil {
+		t.Fatalf("GenerateX25519KeyPair failed: %v", err)
+	}
+
+	clientHello, err := BuildClientHello(sni, masterKey, pub, 64, 0)
+	if err != nil {
+		t.Fatalf("BuildClientHello failed: %v", err)
+	}
+
+	// Parse ClientHello
+	parsed, err := ParseClientHello(clientHello)
+	if err != nil {
+		t.Fatalf("ParseClientHello failed: %v", err)
+	}
+
+	if parsed.SNI != sni {
+		t.Errorf("Expected SNI %s, got %s", sni, parsed.SNI)
+	}
+
+	// Verify ClientPub extracted matches original pub
+	if !bytes.Equal(parsed.ClientPub, pub) {
+		t.Fatalf("Parsed ClientPub mismatch with original generated key")
+	}
+
+	// Verify SessionID HMAC authenticity
+	if !VerifyAuthSessionID(parsed.SessionID, masterKey, parsed.ClientPub, parsed.SNI) {
+		t.Fatalf("SessionID failed auth verification against masterKey")
+	}
+
+	// Inspect raw TLS record
+	if clientHello[0] != TLSRecordHandshake {
+		t.Errorf("Expected TLS record type 0x16, got 0x%02x", clientHello[0])
+	}
+	recordVer := binary.BigEndian.Uint16(clientHello[1:3])
+	if recordVer != TLSVersion10 && recordVer != TLSVersion12 {
+		t.Errorf("Unexpected record TLS version: 0x%04x", recordVer)
+	}
+
+	// Handshake header: type ClientHello (0x01)
+	if clientHello[5] != TLSHandshakeClientHello {
+		t.Errorf("Expected ClientHello type 0x01, got 0x%02x", clientHello[5])
+	}
+}
+
+func TestSessionIDAuth_And_AntiReplay(t *testing.T) {
+	masterKey := []byte("testmasterkeyfortestingauth12345")
+	clientPub := RandomBytes(32)
+	sni := "connectivitycheck.gstatic.com"
+
+	sessionID, err := BuildAuthSessionID(masterKey, clientPub, sni, 0)
+	if err != nil {
+		t.Fatalf("BuildAuthSessionID failed: %v", err)
+	}
+
+	if len(sessionID) != 32 {
+		t.Fatalf("Expected 32-byte SessionID, got %d", len(sessionID))
+	}
+
+	// Verify valid session ID
+	if !VerifyAuthSessionID(sessionID, masterKey, clientPub, sni) {
+		t.Fatalf("VerifyAuthSessionID failed for genuine SessionID")
+	}
+
+	// Tampered SNI fails
+	if VerifyAuthSessionID(sessionID, masterKey, clientPub, "attacker.com") {
+		t.Errorf("VerifyAuthSessionID accepted wrong SNI")
+	}
+
+	// Tampered clientPub fails
+	wrongPub := make([]byte, 32)
+	copy(wrongPub, clientPub)
+	wrongPub[0] ^= 0xff
+	if VerifyAuthSessionID(sessionID, masterKey, wrongPub, sni) {
+		t.Errorf("VerifyAuthSessionID accepted tampered clientPub")
+	}
+
+	// Tampered Tag fails
+	tamperedSessionID := make([]byte, 32)
+	copy(tamperedSessionID, sessionID)
+	tamperedSessionID[31] ^= 0x01
+	if VerifyAuthSessionID(tamperedSessionID, masterKey, clientPub, sni) {
+		t.Errorf("VerifyAuthSessionID accepted tampered Tag")
+	}
+
+	// Test ReplayDetector
+	detector := NewReplayDetector()
+
+	// First presentation -> accepted
+	if !detector.CheckAndAdd(sessionID) {
+		t.Fatalf("ReplayDetector rejected first valid presentation")
+	}
+
+	// Replay identical timestamp + salt -> rejected!
+	if detector.CheckAndAdd(sessionID) {
+		t.Fatalf("ReplayDetector accepted replayed handshake token!")
+	}
+
+	// Stale timestamp (outside 900s AuthWindow) -> rejected by VerifyAuthSessionID
+	staleSessionID, err := BuildAuthSessionID(masterKey, clientPub, sni, -1000)
+	if err == nil {
+		if VerifyAuthSessionID(staleSessionID, masterKey, clientPub, sni) {
+			t.Fatalf("VerifyAuthSessionID accepted stale timestamp outside auth window")
+		}
+	}
+}
+
+func TestTCPChunkerEvation(t *testing.T) {
+	masterKey := []byte("01234567890123456789012345678901")
+	sni := "www.cloudflare.com"
+
+	_, pub, err := GenerateX25519KeyPair()
+	if err != nil {
+		t.Fatalf("Generate keypair failed: %v", err)
+	}
+
+	clientHello, err := BuildClientHello(sni, masterKey, pub, 64, 0)
+	if err != nil {
+		t.Fatalf("BuildClientHello failed: %v", err)
+	}
+
+	if len(clientHello) <= 24 {
+		t.Fatalf("ClientHello too short for chunking test: %d", len(clientHello))
+	}
+
+	// Chunk 1: bytes 0..24
+	chunk1 := clientHello[:24]
+	// Chunk 2: bytes 24..end
+	chunk2 := clientHello[24:]
+
+	reassembled := append(append([]byte(nil), chunk1...), chunk2...)
+	if !bytes.Equal(reassembled, clientHello) {
+		t.Fatalf("Reassembled chunks do not match original ClientHello")
+	}
+
+	parsed, err := ParseClientHello(reassembled)
+	if err != nil {
+		t.Fatalf("Failed to parse reassembled ClientHello: %v", err)
+	}
+
+	if parsed.SNI != sni {
+		t.Errorf("Parsed SNI mismatch: expected %s, got %s", sni, parsed.SNI)
+	}
+	if !bytes.Equal(parsed.ClientPub, pub) {
+		t.Errorf("Parsed ClientPub mismatch after chunk reassembly")
 	}
 }

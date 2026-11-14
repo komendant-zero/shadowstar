@@ -188,6 +188,75 @@ func TestNetStack_FakeDNS(t *testing.T) {
 	}
 }
 
+func TestNetStack_EDNS0(t *testing.T) {
+	mockDev := newMockTunDevice()
+	router, _ := routing.NewEngine(routing.DefaultConfig())
+	fakeDNS, _ := dns.NewFakeDNS("")
+
+	ns := NewNetStack(mockDev, nil, router, fakeDNS)
+	ns.Start()
+	defer ns.Stop()
+
+	// Build a raw DNS query with EDNS(0) OPT pseudo-record: ARCOUNT = 1
+	// Header: ID=0x5678, Flags=0x0100, QDCOUNT=1, ANCOUNT=0, NSCOUNT=0, ARCOUNT=1
+	dnsHeader := []byte{0x56, 0x78, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}
+	qName := []byte{17, 'b', 'i', 'l', 'l', 'i', 'o', 'n', 'a', 'i', 'r', 'e', 'c', 'a', 's', 'i', 'n', 'o', 3, 'c', 'o', 'm', 0}
+	qTypeClass := []byte{0x00, 0x01, 0x00, 0x01} // A, IN
+	// EDNS(0) OPT pseudo-record: Name 0x00, Type 41 (0x0029), UDP payload 4096 (0x1000), TTL/flags 0, RDLEN 0
+	optRecord := []byte{0x00, 0x00, 0x29, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	dnsPayload := append(dnsHeader, append(append(qName, qTypeClass...), optRecord...)...)
+
+	// Wrap in UDP
+	udpHdr := make([]byte, 8)
+	binary.BigEndian.PutUint16(udpHdr[0:2], 54322)
+	binary.BigEndian.PutUint16(udpHdr[2:4], 53)
+	binary.BigEndian.PutUint16(udpHdr[4:6], uint16(8+len(dnsPayload)))
+
+	// Wrap in IPv4
+	srcIP := net.ParseIP("10.255.0.2").To4()
+	dstIP := net.ParseIP("1.1.1.1").To4()
+
+	ipHdr := make([]byte, 20)
+	ipHdr[0] = 0x45
+	binary.BigEndian.PutUint16(ipHdr[2:4], uint16(20+8+len(dnsPayload)))
+	ipHdr[9] = ProtoUDP
+	copy(ipHdr[12:16], srcIP)
+	copy(ipHdr[16:20], dstIP)
+	binary.BigEndian.PutUint16(ipHdr[10:12], checksum(ipHdr))
+
+	packet := append(ipHdr, append(udpHdr, dnsPayload...)...)
+	mockDev.inBuf <- packet
+
+	select {
+	case reply := <-mockDev.outBuf:
+		if len(reply) < 28+12 {
+			t.Fatalf("DNS reply too short: %d", len(reply))
+		}
+		// IP(20) + UDP(8) = 28 bytes offset
+		dnsResp := reply[28:]
+		txID := binary.BigEndian.Uint16(dnsResp[0:2])
+		if txID != 0x5678 {
+			t.Fatalf("unexpected DNS txID: %x", txID)
+		}
+		qdCount := binary.BigEndian.Uint16(dnsResp[4:6])
+		anCount := binary.BigEndian.Uint16(dnsResp[6:8])
+		if qdCount != 1 || anCount != 1 {
+			t.Fatalf("expected QD=1, AN=1, got QD=%d, AN=%d", qdCount, anCount)
+		}
+		// Answer section must start right after Question (12 + len(qName) + 4)
+		expectedAnsOffset := 12 + len(qName) + 4
+		if dnsResp[expectedAnsOffset] != 0xC0 || dnsResp[expectedAnsOffset+1] != 0x0C {
+			t.Fatalf("corrupted Answer pointer at offset %d: got %x %x, expected C0 0C", expectedAnsOffset, dnsResp[expectedAnsOffset], dnsResp[expectedAnsOffset+1])
+		}
+		ansIP := net.IP(dnsResp[expectedAnsOffset+12 : expectedAnsOffset+16])
+		if !fakeDNS.IsFakeIP(ansIP) {
+			t.Fatalf("expected FakeIP, got %s", ansIP)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timeout waiting for EDNS0 DNS reply")
+	}
+}
+
 func TestNetStack_UDPDirect(t *testing.T) {
 	// 1. Start a local UDP echo server
 	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})

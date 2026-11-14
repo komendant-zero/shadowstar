@@ -414,8 +414,8 @@ func (ns *NetStack) handleDNSQuery(clientIP, dnsServerIP net.IP, clientPort uint
 	}
 
 	txID := binary.BigEndian.Uint16(dnsData[0:2])
-	domain, qtype := parseDNSQuestion(dnsData[12:])
-	if domain == "" {
+	domain, qtype, qLen := parseDNSQuestion(dnsData[12:])
+	if domain == "" || qLen <= 0 {
 		return
 	}
 
@@ -423,8 +423,10 @@ func (ns *NetStack) handleDNSQuery(clientIP, dnsServerIP net.IP, clientPort uint
 	if qtype == 1 && ns.fakeDNS != nil {
 		fakeIP := ns.fakeDNS.Allocate(domain)
 		if fakeIP != nil {
-			resp := buildSyntheticDNSResponse(txID, dnsData, fakeIP.String())
-			ns.sendUDPPacket(dnsServerIP, clientIP, 53, clientPort, resp)
+			resp := buildSyntheticDNSResponse(txID, dnsData, qLen, fakeIP.String())
+			if resp != nil {
+				ns.sendUDPPacket(dnsServerIP, clientIP, 53, clientPort, resp)
+			}
 			return
 		}
 	}
@@ -432,14 +434,14 @@ func (ns *NetStack) handleDNSQuery(clientIP, dnsServerIP net.IP, clientPort uint
 	// 2. For AAAA (IPv6) queries in an IPv4 tunnel, respond instantly with NOERROR (0 answers)
 	// so Android Happy Eyeballs immediately falls back to IPv4 without timeout.
 	if qtype == 28 {
-		resp := buildEmptyDNSResponse(txID, dnsData)
+		resp := buildEmptyDNSResponse(txID, dnsData, qLen)
 		if resp != nil {
 			ns.sendUDPPacket(dnsServerIP, clientIP, 53, clientPort, resp)
 		}
 		return
 	}
 
-	// 2. Direct upstream resolution via client or default DoH
+	// 3. Direct upstream resolution via client or default DoH
 	go func() {
 		ips, err := net.LookupIP(domain)
 		if err == nil && len(ips) > 0 {
@@ -451,8 +453,10 @@ func (ns *NetStack) handleDNSQuery(clientIP, dnsServerIP net.IP, clientPort uint
 				}
 			}
 			if chosenIPv4 != nil {
-				resp := buildSyntheticDNSResponse(txID, dnsData, chosenIPv4.String())
-				ns.sendUDPPacket(dnsServerIP, clientIP, 53, clientPort, resp)
+				resp := buildSyntheticDNSResponse(txID, dnsData, qLen, chosenIPv4.String())
+				if resp != nil {
+					ns.sendUDPPacket(dnsServerIP, clientIP, 53, clientPort, resp)
+				}
 			}
 		}
 	}()
@@ -532,7 +536,7 @@ func (ns *NetStack) handleTCP(srcIP, dstIP net.IP, payload []byte) {
 			return
 		}
 
-		initialServerSeq := uint32(1000)
+		initialServerSeq := uint32(time.Now().UnixNano()&0x7FFFFFFF) + 10000
 		connObj := &activeTCPConn{
 			key:        key,
 			targetAddr: destAddr,
@@ -543,6 +547,12 @@ func (ns *NetStack) handleTCP(srcIP, dstIP net.IP, payload []byte) {
 		connObj.lastActive.Store(time.Now().Unix())
 
 		ns.tcpMu.Lock()
+		if old, exists := ns.tcpConns[key]; exists {
+			old.closed.Store(true)
+			if old.remoteConn != nil {
+				_ = old.remoteConn.Close()
+			}
+		}
 		ns.tcpConns[key] = connObj
 		ns.tcpMu.Unlock()
 
@@ -756,6 +766,9 @@ func (ns *NetStack) sendUDPPacket(srcIP, dstIP net.IP, srcPort, dstPort uint16, 
 	copy(pseudo[20:], data)
 
 	cs := checksum(pseudo)
+	if cs == 0 {
+		cs = 0xFFFF
+	}
 	binary.BigEndian.PutUint16(udpHdr[6:8], cs)
 
 	payload := append(udpHdr, data...)
@@ -794,11 +807,28 @@ func socks5Handshake(conn net.Conn, targetAddr string) error {
 	}
 	port, _ := strconv.Atoi(portStr)
 
-	req := []byte{0x05, 0x01, 0x00, 0x03, byte(len(host))}
-	req = append(req, []byte(host)...)
-	portBuf := make([]byte, 2)
-	binary.BigEndian.PutUint16(portBuf, uint16(port))
-	req = append(req, portBuf...)
+	var req []byte
+	ip := net.ParseIP(host).To4()
+	if ip != nil {
+		// ATYP IPv4 (0x01)
+		req = make([]byte, 10)
+		req[0] = 0x05
+		req[1] = 0x01 // CONNECT
+		req[2] = 0x00 // RSV
+		req[3] = 0x01 // ATYP IPv4
+		copy(req[4:8], ip)
+		binary.BigEndian.PutUint16(req[8:10], uint16(port))
+	} else {
+		// ATYP Domain (0x03)
+		req = make([]byte, 7+len(host))
+		req[0] = 0x05
+		req[1] = 0x01 // CONNECT
+		req[2] = 0x00 // RSV
+		req[3] = 0x03 // ATYP Domain
+		req[4] = byte(len(host))
+		copy(req[5:5+len(host)], host)
+		binary.BigEndian.PutUint16(req[5+len(host):7+len(host)], uint16(port))
+	}
 
 	if _, err := conn.Write(req); err != nil {
 		return err
@@ -823,7 +853,7 @@ func socks5Handshake(conn net.Conn, targetAddr string) error {
 	return nil
 }
 
-func parseDNSQuestion(q []byte) (string, uint16) {
+func parseDNSQuestion(q []byte) (string, uint16, int) {
 	var domain string
 	idx := 0
 	for idx < len(q) {
@@ -834,7 +864,7 @@ func parseDNSQuestion(q []byte) (string, uint16) {
 		}
 		idx++
 		if idx+labelLen > len(q) {
-			return "", 0
+			return "", 0, 0
 		}
 		if domain != "" {
 			domain += "."
@@ -843,51 +873,60 @@ func parseDNSQuestion(q []byte) (string, uint16) {
 		idx += labelLen
 	}
 	if idx+4 > len(q) {
-		return domain, 1
+		return domain, 1, len(q)
 	}
 	qtype := binary.BigEndian.Uint16(q[idx : idx+2])
-	return domain, qtype
+	// Question section ends at idx + 4 (QTYPE 2 bytes + QCLASS 2 bytes)
+	return domain, qtype, idx + 4
 }
 
-func buildSyntheticDNSResponse(txID uint16, rawQuery []byte, ipStr string) []byte {
+func buildSyntheticDNSResponse(txID uint16, rawQuery []byte, qLen int, ipStr string) []byte {
 	parsedIP := net.ParseIP(ipStr).To4()
 	if parsedIP == nil {
 		parsedIP = net.ParseIP("198.18.0.1").To4()
 	}
 
+	if qLen <= 0 || 12+qLen > len(rawQuery) {
+		qLen = len(rawQuery) - 12
+	}
+	if qLen <= 0 {
+		return nil
+	}
+
 	// 12 bytes header + Question section + 16 bytes Answer section
-	qLen := len(rawQuery) - 12
 	resp := make([]byte, 12+qLen+16)
 	binary.BigEndian.PutUint16(resp[0:2], txID)
 	resp[2] = 0x81 // Flags: Standard query response, No error
-	resp[3] = 0x80
+	resp[3] = 0x80 // RA (Recursion Available)
 	binary.BigEndian.PutUint16(resp[4:6], 1) // QDCOUNT = 1
 	binary.BigEndian.PutUint16(resp[6:8], 1) // ANCOUNT = 1
 	binary.BigEndian.PutUint16(resp[8:10], 0)
-	binary.BigEndian.PutUint16(resp[10:12], 0)
+	binary.BigEndian.PutUint16(resp[10:12], 0) // ARCOUNT = 0
 
-	// Copy question section
-	copy(resp[12:12+qLen], rawQuery[12:])
+	// Copy question section ONLY (strips any trailing EDNS0 / OPT pseudo-records)
+	copy(resp[12:12+qLen], rawQuery[12:12+qLen])
 
-	// Answer Section
+	// Answer Section placed immediately after Question section
 	ansOffset := 12 + qLen
-	resp[ansOffset] = 0xC0 // Pointer to Question Name
+	resp[ansOffset] = 0xC0 // Pointer to Question Name at offset 12
 	resp[ansOffset+1] = 0x0C
-	binary.BigEndian.PutUint16(resp[ansOffset+2:ansOffset+4], 1)      // TYPE A
-	binary.BigEndian.PutUint16(resp[ansOffset+4:ansOffset+6], 1)      // CLASS IN
-	binary.BigEndian.PutUint32(resp[ansOffset+6:ansOffset+10], 60)    // TTL: 60s
-	binary.BigEndian.PutUint16(resp[ansOffset+10:ansOffset+12], 4)    // RDLENGTH: 4
+	binary.BigEndian.PutUint16(resp[ansOffset+2:ansOffset+4], 1)   // TYPE A
+	binary.BigEndian.PutUint16(resp[ansOffset+4:ansOffset+6], 1)   // CLASS IN
+	binary.BigEndian.PutUint32(resp[ansOffset+6:ansOffset+10], 60) // TTL: 60s
+	binary.BigEndian.PutUint16(resp[ansOffset+10:ansOffset+12], 4) // RDLENGTH: 4
 	copy(resp[ansOffset+12:ansOffset+16], parsedIP)
 
 	return resp
 }
 
-func buildEmptyDNSResponse(txID uint16, rawQuery []byte) []byte {
-	// Standard DNS header (12 bytes) + Question section, ANCOUNT = 0, NOERROR
-	qLen := len(rawQuery) - 12
+func buildEmptyDNSResponse(txID uint16, rawQuery []byte, qLen int) []byte {
+	if qLen <= 0 || 12+qLen > len(rawQuery) {
+		qLen = len(rawQuery) - 12
+	}
 	if qLen <= 0 {
 		return nil
 	}
+	// Standard DNS header (12 bytes) + Question section, ANCOUNT = 0, NOERROR
 	resp := make([]byte, 12+qLen)
 	binary.BigEndian.PutUint16(resp[0:2], txID)
 	resp[2] = 0x81 // Flags: Standard query response, No error
@@ -896,7 +935,7 @@ func buildEmptyDNSResponse(txID uint16, rawQuery []byte) []byte {
 	binary.BigEndian.PutUint16(resp[6:8], 0) // ANCOUNT = 0
 	binary.BigEndian.PutUint16(resp[8:10], 0)
 	binary.BigEndian.PutUint16(resp[10:12], 0)
-	copy(resp[12:], rawQuery[12:])
+	copy(resp[12:12+qLen], rawQuery[12:12+qLen])
 	return resp
 }
 

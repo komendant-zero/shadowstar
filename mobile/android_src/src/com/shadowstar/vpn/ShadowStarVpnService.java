@@ -76,6 +76,26 @@ public class ShadowStarVpnService extends VpnService {
             try {
                 builder.addDisallowedApplication(getPackageName());
                 android.content.SharedPreferences prefs = getSharedPreferences("shadowstar_prefs", MODE_PRIVATE);
+
+                // Game Bypass Mode (Split Tunneling): allows games with strict anti-VPN/datacenter blocks to connect directly
+                boolean gameBypass = prefs.getBoolean("game_bypass_enabled", false);
+                if (gameBypass) {
+                    String[] defaultGamePackages = new String[]{
+                        "com.huuuge.casino.texas", // Billionaire Casino Slots 777
+                        "com.huuuge.casino.slots", // Huuuge Casino Slots
+                        "com.productmadness.iov",  // Cashman Casino
+                        "com.playtika.slotomania", // Slotomania
+                        "com.scopely.monopolygo",  // Monopoly GO
+                        "com.zynga.livepoker",     // Zynga Poker
+                        "com.kama.poker"           // Pokerist
+                    };
+                    for (String gPkg : defaultGamePackages) {
+                        try {
+                            builder.addDisallowedApplication(gPkg);
+                        } catch (Throwable ignored) {}
+                    }
+                }
+
                 java.util.Set<String> disallowed = prefs.getStringSet("disallowed_packages", null);
                 if (disallowed != null) {
                     for (String pkg : disallowed) {

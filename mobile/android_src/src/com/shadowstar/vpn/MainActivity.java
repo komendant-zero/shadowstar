@@ -558,6 +558,20 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void setGameBypass(boolean enabled) {
+            activity.getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("game_bypass_enabled", enabled)
+                    .apply();
+        }
+
+        @JavascriptInterface
+        public boolean isGameBypass() {
+            return activity.getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
+                    .getBoolean("game_bypass_enabled", false);
+        }
+
+        @JavascriptInterface
         public String getInitialConfig() {
             return activity.loadAsset("config.json");
         }

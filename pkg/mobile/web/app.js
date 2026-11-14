@@ -1,6 +1,6 @@
-// ShadowStar Mobile Web / PWA Engine v2.0.1
+// ShadowStar Mobile Web / PWA Engine v2.0.2
 const API_BASE = 'http://127.0.0.1:10810/api';
-const CURRENT_VERSION = 'v2.0.1';
+const CURRENT_VERSION = 'v2.0.2';
 
 const i18n = {
   ru: {
@@ -30,6 +30,8 @@ const i18n = {
     btnInstallUpdate: 'Установить обновление',
     btnDownloadApk: 'Скачать ShadowStar.apk',
     shieldActive: 'Анти-DPI защита активна:',
+    gameModeTitle: 'Игровой режим (Bypass)',
+    gameModeSub: 'Прямой доступ для игр (Billionaire Casino и др.)',
     pasted: 'Вставлено из буфера',
     copied: 'Скопировано',
     nodeAdded: 'Узел успешно добавлен',
@@ -71,6 +73,8 @@ const i18n = {
     btnInstallUpdate: 'Install Update Now',
     btnDownloadApk: 'Download ShadowStar.apk',
     shieldActive: 'Anti-DPI shield active:',
+    gameModeTitle: 'Game Mode (Bypass)',
+    gameModeSub: 'Direct connection for games (Billionaire Casino, etc.)',
     pasted: 'Pasted from clipboard',
     copied: 'Copied',
     nodeAdded: 'Server added successfully',
@@ -153,6 +157,7 @@ function getCountryFlag(addr, name) {
 document.addEventListener('DOMContentLoaded', () => {
   loadStoredServers();
   applyLanguage();
+  initGameBypass();
   updateUI();
   startTelemetryPolling();
   checkUpdateAsync();
@@ -161,6 +166,35 @@ document.addEventListener('DOMContentLoaded', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 });
+
+function initGameBypass() {
+  const toggle = document.getElementById('game-bypass-toggle');
+  if (!toggle) return;
+  if (window.AndroidBridge && typeof window.AndroidBridge.isGameBypass === 'function') {
+    try {
+      toggle.checked = window.AndroidBridge.isGameBypass();
+      return;
+    } catch (_) {}
+  }
+  toggle.checked = localStorage.getItem('shadowstar_game_bypass') === 'true';
+}
+
+function toggleGameBypass(enabled) {
+  try {
+    localStorage.setItem('shadowstar_game_bypass', enabled ? 'true' : 'false');
+  } catch (_) {}
+
+  if (window.AndroidBridge && typeof window.AndroidBridge.setGameBypass === 'function') {
+    try {
+      window.AndroidBridge.setGameBypass(enabled);
+    } catch (_) {}
+  }
+
+  showToast(enabled ? '🎮 Игровой режим включен (обход VPN для игр)' : '🎮 Игровой режим выключен (игры через туннель)');
+  if (state.connected) {
+    showToast('Переподключите туннель для применения настроек');
+  }
+}
 
 const DEFAULT_VPS_SERVER = {
   id: 'node-main-vps',

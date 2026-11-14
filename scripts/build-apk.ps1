@@ -133,9 +133,12 @@ function Build-Variant {
     & $Zipalign -f -p 4 $UnsignedApk $AlignedApk
 
     # 7. Sign APK
-    Write-Host "[7/7] Signing APK with debug keystore..." -ForegroundColor Yellow
-    $Keystore = "$WorkDir\debug.keystore"
+    Write-Host "[7/7] Signing APK with persistent release keystore..." -ForegroundColor Yellow
+    $KeystoreDir = "d:\ocli\ShadowStar\mobile\keystore"
+    New-Item -ItemType Directory -Path $KeystoreDir -Force | Out-Null
+    $Keystore = "$KeystoreDir\shadowstar-release.keystore"
     if (-not (Test-Path $Keystore)) {
+        Write-Host "Creating permanent release keystore: $Keystore..." -ForegroundColor Yellow
         & $Keytool -genkey -v -keystore $Keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=ShadowStar,O=ShadowStar,C=US"
     }
 

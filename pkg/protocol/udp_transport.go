@@ -9,6 +9,8 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -75,6 +77,10 @@ type UDPSession struct {
 	readBuf   bytes.Buffer
 	readCond  *sync.Cond
 
+	// Handshake
+	handshakeDone chan struct{}
+	handshakeOnce sync.Once
+
 	// Lifecycle
 	closed       atomic.Bool
 	closeOnce    sync.Once
@@ -98,11 +104,12 @@ func newUDPSession(rawConn *net.UDPConn, raddr *net.UDPAddr, sessID uint32, isSe
 		isServer:  isServer,
 		sendNext:  1,
 		unacked:   make(map[uint32]*unackedPacket),
-		rto:       DefaultRTO,
-		recvNext:  1,
-		recvBuf:   make(map[uint32][]byte),
-		closeChan: make(chan struct{}),
-		onClose:   onClose,
+		rto:           DefaultRTO,
+		recvNext:      1,
+		recvBuf:       make(map[uint32][]byte),
+		handshakeDone: make(chan struct{}),
+		closeChan:     make(chan struct{}),
+		onClose:       onClose,
 	}
 	s.readCond = sync.NewCond(&s.recvMu)
 	s.lastActivity.Store(time.Now().UnixNano())
@@ -258,6 +265,21 @@ func (s *UDPSession) handlePacket(data []byte) {
 
 	s.lastActivity.Store(time.Now().UnixNano())
 
+	// Client handshake completion on receiving SYN-ACK or ACK from server
+	if !s.isServer && flags&(FlagSYN|FlagACK) != 0 {
+		s.handshakeOnce.Do(func() {
+			close(s.handshakeDone)
+		})
+	}
+
+	// Server SYN response: acknowledge session initiation immediately
+	if s.isServer && flags&FlagSYN != 0 {
+		s.sendSynAck()
+		if payloadLen == 0 {
+			return
+		}
+	}
+
 	// Handle ACK
 	if ack > 0 {
 		s.sendMu.Lock()
@@ -314,6 +336,11 @@ func (s *UDPSession) handlePacket(data []byte) {
 		// Bare SYN
 		s.sendAckOnly()
 	}
+}
+
+func (s *UDPSession) sendSynAck() {
+	synAckPkt := s.buildPacket(0, 0, FlagSYN|FlagACK, nil)
+	_ = s.sendRaw(synAckPkt)
 }
 
 func (s *UDPSession) sendAck(ackSeq uint32) {
@@ -457,7 +484,7 @@ func (s *UDPSession) SetWriteDeadline(t time.Time) error {
 
 // UDPListener listens on a UDP port and multiplexes incoming client sessions
 type UDPListener struct {
-	conn       *net.UDPConn
+	conns      []*net.UDPConn
 	sessions   map[string]*UDPSession
 	mu         sync.RWMutex
 	acceptChan chan *UDPSession
@@ -465,26 +492,59 @@ type UDPListener struct {
 	closeChan  chan struct{}
 }
 
-// ListenUDP starts listening on the specified UDP address
+// ListenUDP starts listening on the specified UDP address (supporting dual IPv4/IPv6 wildcard sockets)
 func ListenUDP(addr string) (*UDPListener, error) {
-	uaddr, err := net.ResolveUDPAddr("udp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("resolve udp addr: %w", err)
-	}
+	var conns []*net.UDPConn
 
-	conn, err := net.ListenUDP("udp", uaddr)
-	if err != nil {
-		return nil, fmt.Errorf("listen udp on %s: %w", addr, err)
+	if strings.HasPrefix(addr, ":") {
+		// Dual wildcard listener: bind both IPv4 (0.0.0.0:port) and IPv6 ([::]:port)
+		portStr := addr[1:]
+		var port int
+		if portStr != "" {
+			var err error
+			port, err = strconv.Atoi(portStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid port in %s: %w", addr, err)
+			}
+		}
+
+		// 1. IPv4 listener
+		uaddr4 := &net.UDPAddr{IP: net.IPv4zero, Port: port}
+		c4, err4 := net.ListenUDP("udp4", uaddr4)
+		if err4 != nil {
+			return nil, fmt.Errorf("listen udp4 on %s: %w", addr, err4)
+		}
+		conns = append(conns, c4)
+
+		actualPort := c4.LocalAddr().(*net.UDPAddr).Port
+
+		// 2. IPv6 listener (best-effort)
+		uaddr6 := &net.UDPAddr{IP: net.IPv6zero, Port: actualPort}
+		if c6, err6 := net.ListenUDP("udp6", uaddr6); err6 == nil {
+			conns = append(conns, c6)
+		}
+	} else {
+		uaddr, err := net.ResolveUDPAddr("udp", addr)
+		if err != nil {
+			return nil, fmt.Errorf("resolve udp addr: %w", err)
+		}
+		c, err := net.ListenUDP("udp", uaddr)
+		if err != nil {
+			return nil, fmt.Errorf("listen udp on %s: %w", addr, err)
+		}
+		conns = append(conns, c)
 	}
 
 	l := &UDPListener{
-		conn:       conn,
+		conns:      conns,
 		sessions:   make(map[string]*UDPSession),
 		acceptChan: make(chan *UDPSession, 128),
 		closeChan:  make(chan struct{}),
 	}
 
-	go l.readLoop()
+	for _, c := range conns {
+		go l.readLoop(c)
+	}
 	return l, nil
 }
 
@@ -492,14 +552,14 @@ func (l *UDPListener) sessionKey(raddr *net.UDPAddr, sessID uint32) string {
 	return fmt.Sprintf("%s-%d", raddr.String(), sessID)
 }
 
-func (l *UDPListener) readLoop() {
+func (l *UDPListener) readLoop(conn *net.UDPConn) {
 	buf := make([]byte, 2048)
 	for {
 		if l.closed.Load() {
 			return
 		}
 
-		n, raddr, err := l.conn.ReadFromUDP(buf)
+		n, raddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if l.closed.Load() {
 				return
@@ -522,7 +582,7 @@ func (l *UDPListener) readLoop() {
 		if !exists {
 			// New session candidate
 			if flags&FlagSYN != 0 {
-				sess = newUDPSession(l.conn, raddr, sessID, true, func(id uint32, addr string) {
+				sess = newUDPSession(conn, raddr, sessID, true, func(id uint32, addr string) {
 					l.mu.Lock()
 					delete(l.sessions, fmt.Sprintf("%s-%d", addr, id))
 					l.mu.Unlock()
@@ -539,7 +599,14 @@ func (l *UDPListener) readLoop() {
 					continue
 				}
 			} else {
-				// Stray packet from unknown session: ignore
+				// Stray packet from unknown or expired session: reply with FIN so client knows to reconnect
+				rstPkt := make([]byte, UDPHeaderSize)
+				rstPkt[0] = DTLSContentTypeAlert
+				rstPkt[1] = DTLSVersion12Major
+				rstPkt[2] = DTLSVersion12Minor
+				binary.BigEndian.PutUint32(rstPkt[3:7], sessID)
+				rstPkt[15] = FlagFIN
+				_, _ = conn.WriteToUDP(rstPkt, raddr)
 				continue
 			}
 		}
@@ -568,7 +635,9 @@ func (l *UDPListener) Accept() (net.Conn, error) {
 func (l *UDPListener) Close() error {
 	if l.closed.CompareAndSwap(false, true) {
 		close(l.closeChan)
-		_ = l.conn.Close()
+		for _, c := range l.conns {
+			_ = c.Close()
+		}
 
 		l.mu.Lock()
 		sessionsToClose := make([]*UDPSession, 0, len(l.sessions))
@@ -586,7 +655,10 @@ func (l *UDPListener) Close() error {
 }
 
 func (l *UDPListener) Addr() net.Addr {
-	return l.conn.LocalAddr()
+	if len(l.conns) > 0 {
+		return l.conns[0].LocalAddr()
+	}
+	return nil
 }
 
 // --- UDP Dialer (Client-Side) ---
@@ -609,14 +681,7 @@ func DialUDP(remoteAddr string) (net.Conn, error) {
 
 	sess := newUDPSession(conn, raddr, sessID, false, nil)
 
-	// Send initial SYN packet to wake up and initiate session on server
-	synPkt := sess.buildPacket(0, 0, FlagSYN, nil)
-	if err := sess.sendRaw(synPkt); err != nil {
-		sess.Close()
-		return nil, fmt.Errorf("send initial syn: %w", err)
-	}
-
-	// Read loop for client UDP connection
+	// Read loop for client UDP connection (start before sending SYN so we catch SYN-ACK)
 	go func() {
 		buf := make([]byte, 2048)
 		for {
@@ -635,6 +700,35 @@ func DialUDP(remoteAddr string) (net.Conn, error) {
 			}
 		}
 	}()
+
+	// Send initial SYN packet to wake up and initiate session on server
+	synPkt := sess.buildPacket(0, 0, FlagSYN, nil)
+
+	// Perform reliable handshake with fast retransmission
+	handshakeDone := false
+	for att := 0; att < 4; att++ {
+		if err := sess.sendRaw(synPkt); err != nil {
+			sess.Close()
+			return nil, fmt.Errorf("send initial syn: %w", err)
+		}
+		select {
+		case <-sess.handshakeDone:
+			handshakeDone = true
+			break
+		case <-time.After(350 * time.Millisecond):
+		}
+		if handshakeDone {
+			break
+		}
+	}
+
+	if !handshakeDone {
+		sess.Close()
+		return nil, fmt.Errorf("udp handshake timed out: no response from %s (check server firewall or udp connectivity)", remoteAddr)
+	}
+
+	// Send initial ACK to complete handshake
+	sess.sendAckOnly()
 
 	return sess, nil
 }

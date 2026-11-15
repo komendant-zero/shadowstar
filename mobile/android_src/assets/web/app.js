@@ -1,6 +1,6 @@
-// ShadowStar Mobile Web / PWA Engine v2.0.5
+// ShadowStar Mobile Web / PWA Engine v2.0.6
 const API_BASE = 'http://127.0.0.1:10810/api';
-const CURRENT_VERSION = 'v2.0.5';
+const CURRENT_VERSION = 'v2.0.6';
 
 const i18n = {
   ru: {

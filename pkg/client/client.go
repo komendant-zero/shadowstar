@@ -505,19 +505,28 @@ func (c *Client) dialTransport(addr string) (net.Conn, string, error) {
 	switch trans {
 	case "udp":
 		conn, err := protocol.DialUDP(addr)
-		return conn, "UDP", err
-	case "auto":
-		// Auto mode: attempt fast TCP first (2.5s timeout)
-		conn, err := net.DialTimeout("tcp", addr, 2500*time.Millisecond)
-		if err == nil {
-			return conn, "TCP (Auto)", nil
+		if err != nil {
+			c.Log(fmt.Sprintf("[Transport] UDP connection failed (%v). Falling back to TCP...", err))
+			// Fail-safe automatic fallback to TCP so user traffic never drops to 0!
+			connTCP, tErr := net.DialTimeout("tcp", addr, 6*time.Second)
+			if tErr == nil {
+				return connTCP, "TCP (UDP-Fallback)", nil
+			}
+			return nil, "UDP", err
 		}
-		c.Log(fmt.Sprintf("[Transport] TCP attempt failed (%v), automatically switching to UDP...", err))
+		return conn, "UDP", nil
+	case "auto":
+		// Auto mode: attempt fast UDP first; if unavailable, fallback to TCP
 		conn, uErr := protocol.DialUDP(addr)
 		if uErr == nil {
-			return conn, "UDP (Auto-Fallback)", nil
+			return conn, "UDP (Auto)", nil
 		}
-		return nil, "Auto", fmt.Errorf("both TCP (%v) and UDP (%v) failed", err, uErr)
+		c.Log(fmt.Sprintf("[Transport] UDP attempt failed (%v), automatically switching to TCP...", uErr))
+		connTCP, err := net.DialTimeout("tcp", addr, 6*time.Second)
+		if err == nil {
+			return connTCP, "TCP (Auto)", nil
+		}
+		return nil, "Auto", fmt.Errorf("both UDP (%v) and TCP (%v) failed", uErr, err)
 	case "tcp":
 		fallthrough
 	default:

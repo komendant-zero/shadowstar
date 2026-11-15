@@ -85,7 +85,14 @@ else
     exit 1
 fi
 
-# 4. Graceful restart
+# 4. Configure Firewall for Dual TCP/UDP Transport
+if command -v ufw >/dev/null 2>&1; then
+    LISTEN_PORT=$(grep -oP '"listen_addr":\s*"[^:]*:\K[0-9]+' /etc/shadowstar/config.json 2>/dev/null || echo "4433")
+    ufw allow "$LISTEN_PORT"/udp >/dev/null 2>&1 || true
+    echo -e "${GREEN}[+] Configured firewall for UDP port $LISTEN_PORT/udp${NC}"
+fi
+
+# 5. Graceful restart
 echo -e "${CYAN}[*] Restarting shadowstar.service...${NC}"
 systemctl restart shadowstar.service
 

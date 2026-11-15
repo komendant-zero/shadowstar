@@ -169,8 +169,10 @@ systemctl restart shadowstar.service
 # Configure Firewall
 if command -v ufw >/dev/null 2>&1; then
     ufw allow "$LISTEN_PORT"/tcp >/dev/null 2>&1 || true
+    ufw allow "$LISTEN_PORT"/udp >/dev/null 2>&1 || true
 elif command -v firewall-cmd >/dev/null 2>&1; then
     firewall-cmd --add-port="$LISTEN_PORT"/tcp --permanent >/dev/null 2>&1 || true
+    firewall-cmd --add-port="$LISTEN_PORT"/udp --permanent >/dev/null 2>&1 || true
     firewall-cmd --reload >/dev/null 2>&1 || true
 fi
 

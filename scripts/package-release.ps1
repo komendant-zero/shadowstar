@@ -1,8 +1,8 @@
-# Package release v2.0.4 assets
+# Package release v2.0.5 assets
 $ErrorActionPreference = "Stop"
 Set-Location "D:\ocli\ShadowStar"
 
-$RelDir = "D:\ocli\ShadowStar\bin\release-v2.0.4"
+$RelDir = "D:\ocli\ShadowStar\bin\release-v2.0.5"
 if (-not (Test-Path $RelDir)) {
     New-Item -ItemType Directory -Path $RelDir -Force | Out-Null
 }

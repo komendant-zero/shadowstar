@@ -248,10 +248,25 @@ public class MainActivity extends Activity {
                 if (binFile.exists()) {
                     binFile.setExecutable(true);
                     File cfgFile = new File(getFilesDir(), "config.json");
+                    String cleanKey = (lastProfileKey != null && !lastProfileKey.isEmpty()) ? lastProfileKey : "01d7b18d323cbb7a771ec7baffd331cff73f188b620f7d56a3dfc22c6cf535b2";
+                    String cleanAddr = (lastProfileAddr != null && !lastProfileAddr.isEmpty()) ? lastProfileAddr : "179.253.74.36:4433";
+                    String cleanSni = (lastProfileSni != null && !lastProfileSni.isEmpty()) ? lastProfileSni : "www.microsoft.com";
+                    String cleanName = (lastProfileName != null && !lastProfileName.isEmpty()) ? lastProfileName : "VPS-179.253.74.36 (NL Amsterdam)";
+
                     if (!cfgFile.exists()) {
-                        copyAssetToFile("config.json", cfgFile);
+                        String initJson = "{\"socks_addr\":\"127.0.0.1:10808\",\"http_addr\":\"127.0.0.1:10809\","
+                                + "\"servers\":[{\"id\":\"active\",\"name\":\"" + cleanName + "\","
+                                + "\"server_addr\":\"" + cleanAddr + "\","
+                                + "\"master_key\":\"" + cleanKey + "\","
+                                + "\"sni\":\"" + cleanSni + "\","
+                                + "\"enable_chunker\":true}],"
+                                + "\"active_id\":\"active\"}";
+                        try (FileOutputStream fos = new FileOutputStream(cfgFile)) {
+                            fos.write(initJson.getBytes("UTF-8"));
+                        } catch (Throwable ignored) {}
                     }
-                    ProcessBuilder pb = new ProcessBuilder(binFile.getAbsolutePath(), "-c", cfgFile.getAbsolutePath());
+                    String initUri = "shadowstar://" + cleanKey + "@" + cleanAddr + "/?sni=" + cleanSni + "&chunker=1&name=Active";
+                    ProcessBuilder pb = new ProcessBuilder(binFile.getAbsolutePath(), "-c", cfgFile.getAbsolutePath(), "-connect", initUri);
                     pb.directory(getFilesDir());
                     pb.redirectErrorStream(true);
                     daemonProcess = pb.start();
@@ -558,17 +573,44 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void setGameBypass(boolean enabled) {
+        public void setGameMode(boolean enabled) {
             activity.getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
                     .edit()
+                    .putBoolean("game_mode_enabled", enabled)
                     .putBoolean("game_bypass_enabled", enabled)
                     .apply();
+            // Also notify Go daemon asynchronously
+            new Thread(() -> {
+                try {
+                    java.net.URL url = new java.net.URL("http://127.0.0.1:10810/api/game-mode");
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("POST");
+                    conn.setRequestProperty("Content-Type", "application/json");
+                    conn.setDoOutput(true);
+                    conn.setConnectTimeout(1000);
+                    conn.setReadTimeout(1000);
+                    try (java.io.OutputStream os = conn.getOutputStream()) {
+                        os.write(("{\"enabled\":" + enabled + "}").getBytes("UTF-8"));
+                    }
+                    conn.getResponseCode();
+                } catch (Throwable ignored) {}
+            }).start();
+        }
+
+        @JavascriptInterface
+        public boolean isGameMode() {
+            return activity.getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
+                    .getBoolean("game_mode_enabled", false);
+        }
+
+        @JavascriptInterface
+        public void setGameBypass(boolean enabled) {
+            setGameMode(enabled);
         }
 
         @JavascriptInterface
         public boolean isGameBypass() {
-            return activity.getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
-                    .getBoolean("game_bypass_enabled", false);
+            return isGameMode();
         }
 
         @JavascriptInterface

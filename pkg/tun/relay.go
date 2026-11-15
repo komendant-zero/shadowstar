@@ -4,7 +4,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"sync"
 	"sync/atomic"
 
 	"github.com/shadowstar/shadowstar/pkg/client"
@@ -18,8 +17,7 @@ import (
 type PacketRelay struct {
 	listenAddr string
 	conn       *net.UDPConn
-	clientAddr *net.UDPAddr
-	clientMu   sync.RWMutex
+	clientAddr atomic.Pointer[net.UDPAddr]
 	netstack   *NetStack
 	running    atomic.Bool
 	stopChan   chan struct{}
@@ -35,6 +33,8 @@ func NewPacketRelay(listenAddr string, c *client.Client, r routing.Engine, f dns
 	if err != nil {
 		return nil, err
 	}
+	_ = conn.SetReadBuffer(2 * 1024 * 1024)
+	_ = conn.SetWriteBuffer(2 * 1024 * 1024)
 
 	relay := &PacketRelay{
 		listenAddr: listenAddr,
@@ -74,6 +74,21 @@ func (pr *PacketRelay) Stop() error {
 	return pr.conn.Close()
 }
 
+// SetGameMode configures game acceleration and unblocking in the underlying NetStack
+func (pr *PacketRelay) SetGameMode(enabled bool) {
+	if pr.netstack != nil {
+		pr.netstack.SetGameMode(enabled)
+	}
+}
+
+// IsGameMode returns whether game mode is active in NetStack
+func (pr *PacketRelay) IsGameMode() bool {
+	if pr.netstack != nil {
+		return pr.netstack.IsGameMode()
+	}
+	return false
+}
+
 // Read implements io.Reader: reads raw IP packet sent by Android VpnService over UDP
 func (pr *PacketRelay) Read(p []byte) (int, error) {
 	for pr.running.Load() {
@@ -85,9 +100,10 @@ func (pr *PacketRelay) Read(p []byte) (int, error) {
 			return 0, err
 		}
 		if n > 0 {
-			pr.clientMu.Lock()
-			pr.clientAddr = rAddr
-			pr.clientMu.Unlock()
+			curr := pr.clientAddr.Load()
+			if curr == nil || curr.Port != rAddr.Port || !curr.IP.Equal(rAddr.IP) {
+				pr.clientAddr.Store(rAddr)
+			}
 			return n, nil
 		}
 	}
@@ -96,10 +112,7 @@ func (pr *PacketRelay) Read(p []byte) (int, error) {
 
 // Write implements io.Writer: sends processed raw IP packet back to Android VpnService
 func (pr *PacketRelay) Write(p []byte) (int, error) {
-	pr.clientMu.RLock()
-	target := pr.clientAddr
-	pr.clientMu.RUnlock()
-
+	target := pr.clientAddr.Load()
 	if target == nil {
 		// No Android VpnService packet received yet, drop return packet
 		return len(p), nil

@@ -1,6 +1,6 @@
-// ShadowStar Mobile Web / PWA Engine v2.0.2
+// ShadowStar Mobile Web / PWA Engine v2.0.3
 const API_BASE = 'http://127.0.0.1:10810/api';
-const CURRENT_VERSION = 'v2.0.2';
+const CURRENT_VERSION = 'v2.0.3';
 
 const i18n = {
   ru: {
@@ -30,8 +30,10 @@ const i18n = {
     btnInstallUpdate: 'Установить обновление',
     btnDownloadApk: 'Скачать ShadowStar.apk',
     shieldActive: 'Анти-DPI защита активна:',
-    gameModeTitle: 'Игровой режим (Bypass)',
-    gameModeSub: 'Прямой доступ для игр (Billionaire Casino и др.)',
+    gameModeTitle: 'Игровой режим (Game Boost)',
+    gameModeSub: 'Разблокировка и низкий пинг для игр (Brawl Stars, Roblox, Casino и др.)',
+    gameModeOn: '🎮 Игровой режим включен: минимальный пинг и доступ к заблокированным играм',
+    gameModeOff: '🎮 Игровой режим выключен: стандартный умный режим',
     pasted: 'Вставлено из буфера',
     copied: 'Скопировано',
     nodeAdded: 'Узел успешно добавлен',
@@ -73,8 +75,10 @@ const i18n = {
     btnInstallUpdate: 'Install Update Now',
     btnDownloadApk: 'Download ShadowStar.apk',
     shieldActive: 'Anti-DPI shield active:',
-    gameModeTitle: 'Game Mode (Bypass)',
-    gameModeSub: 'Direct connection for games (Billionaire Casino, etc.)',
+    gameModeTitle: 'Game Mode (Boost & Unblock)',
+    gameModeSub: 'Lowest ping & unblocked access (Brawl Stars, Roblox, Casino, etc.)',
+    gameModeOn: '🎮 Game Mode active: lowest ping & unblocked games',
+    gameModeOff: '🎮 Game Mode off: standard smart routing',
     pasted: 'Pasted from clipboard',
     copied: 'Copied',
     nodeAdded: 'Server added successfully',
@@ -157,7 +161,7 @@ function getCountryFlag(addr, name) {
 document.addEventListener('DOMContentLoaded', () => {
   loadStoredServers();
   applyLanguage();
-  initGameBypass();
+  initGameMode();
   updateUI();
   startTelemetryPolling();
   checkUpdateAsync();
@@ -167,34 +171,58 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-function initGameBypass() {
-  const toggle = document.getElementById('game-bypass-toggle');
+function initGameMode() {
+  const toggle = document.getElementById('game-mode-toggle') || document.getElementById('game-bypass-toggle');
   if (!toggle) return;
-  if (window.AndroidBridge && typeof window.AndroidBridge.isGameBypass === 'function') {
-    try {
-      toggle.checked = window.AndroidBridge.isGameBypass();
-      return;
-    } catch (_) {}
+  if (window.AndroidBridge) {
+    if (typeof window.AndroidBridge.isGameMode === 'function') {
+      try {
+        toggle.checked = window.AndroidBridge.isGameMode();
+        return;
+      } catch (_) {}
+    } else if (typeof window.AndroidBridge.isGameBypass === 'function') {
+      try {
+        toggle.checked = window.AndroidBridge.isGameBypass();
+        return;
+      } catch (_) {}
+    }
   }
-  toggle.checked = localStorage.getItem('shadowstar_game_bypass') === 'true';
+  fetch(`${API_BASE}/game-mode`)
+    .then(r => r.json())
+    .then(res => {
+      if (res && res.data && typeof res.data.game_mode === 'boolean') {
+        toggle.checked = res.data.game_mode;
+      }
+    })
+    .catch(() => {});
+  toggle.checked = localStorage.getItem('shadowstar_game_mode') === 'true' || localStorage.getItem('shadowstar_game_bypass') === 'true';
 }
 
-function toggleGameBypass(enabled) {
+function toggleGameMode(enabled) {
   try {
+    localStorage.setItem('shadowstar_game_mode', enabled ? 'true' : 'false');
     localStorage.setItem('shadowstar_game_bypass', enabled ? 'true' : 'false');
   } catch (_) {}
 
-  if (window.AndroidBridge && typeof window.AndroidBridge.setGameBypass === 'function') {
-    try {
-      window.AndroidBridge.setGameBypass(enabled);
-    } catch (_) {}
+  if (window.AndroidBridge) {
+    if (typeof window.AndroidBridge.setGameMode === 'function') {
+      try { window.AndroidBridge.setGameMode(enabled); } catch (_) {}
+    } else if (typeof window.AndroidBridge.setGameBypass === 'function') {
+      try { window.AndroidBridge.setGameBypass(enabled); } catch (_) {}
+    }
   }
 
-  showToast(enabled ? '🎮 Игровой режим включен (обход VPN для игр)' : '🎮 Игровой режим выключен (игры через туннель)');
-  if (state.connected) {
-    showToast('Переподключите туннель для применения настроек');
-  }
+  fetch(`${API_BASE}/game-mode`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: !!enabled })
+  }).catch(() => {});
+
+  showToast(enabled ? t('gameModeOn') : t('gameModeOff'));
 }
+
+const initGameBypass = initGameMode;
+const toggleGameBypass = toggleGameMode;
 
 const DEFAULT_VPS_SERVER = {
   id: 'node-main-vps',

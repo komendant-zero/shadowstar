@@ -77,25 +77,7 @@ public class ShadowStarVpnService extends VpnService {
                 builder.addDisallowedApplication(getPackageName());
                 android.content.SharedPreferences prefs = getSharedPreferences("shadowstar_prefs", MODE_PRIVATE);
 
-                // Game Bypass Mode (Split Tunneling): allows games with strict anti-VPN/datacenter blocks to connect directly
-                boolean gameBypass = prefs.getBoolean("game_bypass_enabled", false);
-                if (gameBypass) {
-                    String[] defaultGamePackages = new String[]{
-                        "com.huuuge.casino.texas", // Billionaire Casino Slots 777
-                        "com.huuuge.casino.slots", // Huuuge Casino Slots
-                        "com.productmadness.iov",  // Cashman Casino
-                        "com.playtika.slotomania", // Slotomania
-                        "com.scopely.monopolygo",  // Monopoly GO
-                        "com.zynga.livepoker",     // Zynga Poker
-                        "com.kama.poker"           // Pokerist
-                    };
-                    for (String gPkg : defaultGamePackages) {
-                        try {
-                            builder.addDisallowedApplication(gPkg);
-                        } catch (Throwable ignored) {}
-                    }
-                }
-
+                // Split tunneling: disallowed packages configured explicitly by user
                 java.util.Set<String> disallowed = prefs.getStringSet("disallowed_packages", null);
                 if (disallowed != null) {
                     for (String pkg : disallowed) {
@@ -109,7 +91,6 @@ public class ShadowStarVpnService extends VpnService {
 
             // Transparent L3 TUN routing (no HTTP proxy set, ensuring games like Billionaire Casino do not trigger anti-cheat proxy blocks)
             builder.addRoute("0.0.0.0", 0);
-
             builder.addDnsServer("1.1.1.1");
             builder.addDnsServer("8.8.8.8");
             builder.setMtu(1500);
@@ -123,6 +104,10 @@ public class ShadowStarVpnService extends VpnService {
                     relaySocket = new DatagramSocket();
                     try {
                         protect(relaySocket);
+                    } catch (Throwable ignored) {}
+                    try {
+                        relaySocket.setReceiveBufferSize(2 * 1024 * 1024);
+                        relaySocket.setSendBufferSize(2 * 1024 * 1024);
                     } catch (Throwable ignored) {}
 
                     final DatagramSocket sock = relaySocket;
@@ -155,6 +140,9 @@ public class ShadowStarVpnService extends VpnService {
                             DatagramPacket respPkt = new DatagramPacket(respBuf, respBuf.length);
                             while (isRunning && vpnInterface != null && !sock.isClosed()) {
                                 try {
+                                    // CRITICAL: DatagramPacket.getLength() mutates to last received packet length.
+                                    // Resetting buffer capacity prevents truncation of larger game/data packets!
+                                    respPkt.setLength(respBuf.length);
                                     sock.receive(respPkt);
                                     int len = respPkt.getLength();
                                     if (len > 0) {

@@ -468,3 +468,433 @@ func TestNetStack_UDPSocks5Proxy(t *testing.T) {
 		t.Fatalf("timeout waiting for UDP SOCKS5 proxy response")
 	}
 }
+
+func TestNetStack_GameMode(t *testing.T) {
+	mockDev := newMockTunDevice()
+	cfg := &routing.Config{
+		Mode:          "rule",
+		DefaultAction: routing.ActionDirect,
+	}
+	router, _ := routing.NewEngine(cfg)
+	ns := NewNetStack(mockDev, nil, router, nil)
+
+	if ns.IsGameMode() {
+		t.Fatalf("expected GameMode to be false initially")
+	}
+
+	ns.SetGameMode(true)
+	if !ns.IsGameMode() {
+		t.Fatalf("expected GameMode to be true after SetGameMode(true)")
+	}
+
+	ns.SetGameMode(false)
+	if ns.IsGameMode() {
+		t.Fatalf("expected GameMode to be false after SetGameMode(false)")
+	}
+}
+
+func TestNetStack_HTTPS_DNS_EmptyResponse(t *testing.T) {
+	mockDev := newMockTunDevice()
+	router, _ := routing.NewEngine(routing.DefaultConfig())
+	fakeDNS, _ := dns.NewFakeDNS("")
+
+	ns := NewNetStack(mockDev, nil, router, fakeDNS)
+	ns.Start()
+	defer ns.Stop()
+
+	// Type 65 (HTTPS / SVCB) query
+	dnsHeader := []byte{0x77, 0x88, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	qName := []byte{5, 'b', 'r', 'a', 'w', 'l', 5, 's', 't', 'a', 'r', 's', 3, 'c', 'o', 'm', 0}
+	qTypeClass := []byte{0x00, 0x41, 0x00, 0x01} // TYPE 65 (0x0041), CLASS IN (0x0001)
+	dnsPayload := append(dnsHeader, append(qName, qTypeClass...)...)
+
+	// Wrap in UDP
+	udpHdr := make([]byte, 8)
+	binary.BigEndian.PutUint16(udpHdr[0:2], 51234)
+	binary.BigEndian.PutUint16(udpHdr[2:4], 53)
+	binary.BigEndian.PutUint16(udpHdr[4:6], uint16(8+len(dnsPayload)))
+
+	// Wrap in IPv4
+	srcIP := net.ParseIP("10.255.0.2").To4()
+	dstIP := net.ParseIP("1.1.1.1").To4()
+
+	ipHdr := make([]byte, 20)
+	ipHdr[0] = 0x45
+	binary.BigEndian.PutUint16(ipHdr[2:4], uint16(20+8+len(dnsPayload)))
+	ipHdr[9] = ProtoUDP
+	copy(ipHdr[12:16], srcIP)
+	copy(ipHdr[16:20], dstIP)
+	binary.BigEndian.PutUint16(ipHdr[10:12], checksum(ipHdr))
+
+	packet := append(ipHdr, append(udpHdr, dnsPayload...)...)
+	mockDev.inBuf <- packet
+
+	select {
+	case reply := <-mockDev.outBuf:
+		if len(reply) < 28+12 {
+			t.Fatalf("DNS reply too short: %d", len(reply))
+		}
+		dnsResp := reply[28:]
+		txID := binary.BigEndian.Uint16(dnsResp[0:2])
+		if txID != 0x7788 {
+			t.Fatalf("unexpected txID: %x", txID)
+		}
+		anCount := binary.BigEndian.Uint16(dnsResp[6:8])
+		if anCount != 0 {
+			t.Fatalf("expected ANCOUNT=0 for non-A query in FakeDNS, got %d", anCount)
+		}
+		flags := binary.BigEndian.Uint16(dnsResp[2:4])
+		// Check NOERROR (rcode = flags & 0x0F == 0)
+		if flags&0x000F != 0 {
+			t.Fatalf("expected RCODE NOERROR (0), got %d", flags&0x000F)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timeout waiting for HTTPS SVCB DNS response")
+	}
+}
+
+func TestNetStack_TCPRetransmissionDeduplication(t *testing.T) {
+	mockDev := newMockTunDevice()
+	ns := NewNetStack(mockDev, nil, nil, nil)
+	ns.Start()
+	defer ns.Stop()
+
+	// Start a local mock TCP target
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer ln.Close()
+
+	targetPort := uint16(ln.Addr().(*net.TCPAddr).Port)
+	receivedBytes := make(chan []byte, 10)
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 1024)
+		for {
+			n, err := conn.Read(buf)
+			if n > 0 {
+				chunk := make([]byte, n)
+				copy(chunk, buf[:n])
+				receivedBytes <- chunk
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	srcIP := net.ParseIP("10.254.1.2").To4()
+	dstIP := net.ParseIP("127.0.0.1").To4()
+	srcPort := uint16(54321)
+
+	makeTCPPkt := func(seq, ack uint32, flags byte, data []byte) []byte {
+		tcpLen := 20 + len(data)
+		tcpHdr := make([]byte, 20)
+		binary.BigEndian.PutUint16(tcpHdr[0:2], srcPort)
+		binary.BigEndian.PutUint16(tcpHdr[2:4], targetPort)
+		binary.BigEndian.PutUint32(tcpHdr[4:8], seq)
+		binary.BigEndian.PutUint32(tcpHdr[8:12], ack)
+		tcpHdr[12] = 0x50
+		tcpHdr[13] = flags
+		binary.BigEndian.PutUint16(tcpHdr[14:16], 65535)
+
+		totalLen := 20 + tcpLen
+		ipHdr := make([]byte, 20)
+		ipHdr[0] = 0x45
+		binary.BigEndian.PutUint16(ipHdr[2:4], uint16(totalLen))
+		ipHdr[9] = ProtoTCP
+		copy(ipHdr[12:16], srcIP)
+		copy(ipHdr[16:20], dstIP)
+		binary.BigEndian.PutUint16(ipHdr[10:12], checksum(ipHdr))
+
+		return append(ipHdr, append(tcpHdr, data...)...)
+	}
+
+	// 1. Send SYN
+	clientInitSeq := uint32(1000)
+	ns.processIPv4Packet(makeTCPPkt(clientInitSeq, 0, TCPFlagSYN, nil))
+
+	// Wait for SYN-ACK
+	var serverInitSeq uint32
+	select {
+	case reply := <-mockDev.outBuf:
+		if len(reply) < 40 {
+			t.Fatalf("SYN-ACK too short: %d", len(reply))
+		}
+		tcpReply := reply[20:]
+		serverInitSeq = binary.BigEndian.Uint32(tcpReply[4:8])
+		ack := binary.BigEndian.Uint32(tcpReply[8:12])
+		if ack != clientInitSeq+1 {
+			t.Fatalf("expected ACK %d, got %d", clientInitSeq+1, ack)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timeout waiting for SYN-ACK")
+	}
+
+	// 2. Send initial DATA (20 bytes)
+	dataPayload := []byte("hello telegram data!")
+	ns.processIPv4Packet(makeTCPPkt(clientInitSeq+1, serverInitSeq+1, TCPFlagACK|TCPFlagPSH, dataPayload))
+
+	select {
+	case chunk := <-receivedBytes:
+		if string(chunk) != string(dataPayload) {
+			t.Fatalf("expected payload %q, got %q", string(dataPayload), string(chunk))
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timeout waiting for first data packet")
+	}
+
+	// Drain ACK reply from mockDev
+	select {
+	case <-mockDev.outBuf:
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	// 3. Send DUPLICATE / RETRANSMITTED DATA (same seq clientInitSeq+1)
+	ns.processIPv4Packet(makeTCPPkt(clientInitSeq+1, serverInitSeq+1, TCPFlagACK|TCPFlagPSH, dataPayload))
+
+	// Verify that target did NOT receive duplicate data!
+	select {
+	case dup := <-receivedBytes:
+		t.Fatalf("ERROR: target received duplicate retransmitted data: %q! Stream corrupted!", string(dup))
+	case <-time.After(300 * time.Millisecond):
+		// SUCCESS: No duplicate data received
+	}
+
+	// But an ACK was sent back to confirm the sequence
+	select {
+	case reply := <-mockDev.outBuf:
+		tcpReply := reply[20:]
+		ack := binary.BigEndian.Uint32(tcpReply[8:12])
+		expectedAck := clientInitSeq + 1 + uint32(len(dataPayload))
+		if ack != expectedAck {
+			t.Fatalf("expected ACK %d, got %d", expectedAck, ack)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("expected ACK for retransmission")
+	}
+}
+
+func TestNetStack_TCPOptions_SYNACK(t *testing.T) {
+	mockDev := newMockTunDevice()
+	ns := NewNetStack(mockDev, nil, nil, nil)
+	ns.Start()
+	defer ns.Stop()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer ln.Close()
+
+	targetPort := uint16(ln.Addr().(*net.TCPAddr).Port)
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}()
+
+	srcIP := net.ParseIP("10.254.1.2").To4()
+	dstIP := net.ParseIP("127.0.0.1").To4()
+	srcPort := uint16(43210)
+
+	// Send SYN
+	clientInitSeq := uint32(5000)
+	synHdr := make([]byte, 20)
+	binary.BigEndian.PutUint16(synHdr[0:2], srcPort)
+	binary.BigEndian.PutUint16(synHdr[2:4], targetPort)
+	binary.BigEndian.PutUint32(synHdr[4:8], clientInitSeq)
+	synHdr[12] = 0x50
+	synHdr[13] = TCPFlagSYN
+	binary.BigEndian.PutUint16(synHdr[14:16], 65535)
+
+	ipHdr := make([]byte, 20)
+	ipHdr[0] = 0x45
+	binary.BigEndian.PutUint16(ipHdr[2:4], 40)
+	ipHdr[9] = ProtoTCP
+	copy(ipHdr[12:16], srcIP)
+	copy(ipHdr[16:20], dstIP)
+	binary.BigEndian.PutUint16(ipHdr[10:12], checksum(ipHdr))
+
+	synPkt := append(ipHdr, synHdr...)
+	mockDev.inBuf <- synPkt
+
+	select {
+	case reply := <-mockDev.outBuf:
+		if len(reply) != 52 {
+			t.Fatalf("expected 52-byte IPv4+TCP SYN-ACK with options, got %d bytes", len(reply))
+		}
+		tcpReply := reply[20:]
+		dataOffset := tcpReply[12] >> 4
+		if dataOffset != 8 {
+			t.Fatalf("expected data offset 8 (32 bytes), got %d", dataOffset)
+		}
+		flags := tcpReply[13]
+		if flags != (TCPFlagSYN | TCPFlagACK) {
+			t.Fatalf("expected SYN-ACK flags 0x12, got 0x%02x", flags)
+		}
+
+		// Verify MSS option (Kind 2, Len 4, Value 1360)
+		if tcpReply[20] != 2 || tcpReply[21] != 4 {
+			t.Fatalf("expected MSS option header [2 4], got [%d %d]", tcpReply[20], tcpReply[21])
+		}
+		mss := binary.BigEndian.Uint16(tcpReply[22:24])
+		if mss != 1360 {
+			t.Fatalf("expected MSS 1360, got %d", mss)
+		}
+
+		// Verify Window Scale (Kind 3, Len 3, Value 7)
+		if tcpReply[25] != 3 || tcpReply[26] != 3 || tcpReply[27] != 7 {
+			t.Fatalf("expected Window Scale [3 3 7], got [%d %d %d]", tcpReply[25], tcpReply[26], tcpReply[27])
+		}
+
+		// Verify SACK Permitted (Kind 4, Len 2)
+		if tcpReply[28] != 4 || tcpReply[29] != 2 {
+			t.Fatalf("expected SACK Permitted [4 2], got [%d %d]", tcpReply[28], tcpReply[29])
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timeout waiting for SYN-ACK")
+	}
+}
+
+func TestNetStack_QUIC_PortUnreachable(t *testing.T) {
+	mockDev := newMockTunDevice()
+	ns := NewNetStack(mockDev, nil, nil, nil)
+	ns.Start()
+	defer ns.Stop()
+
+	// Client sends QUIC UDP packet to port 443
+	srcIP := net.ParseIP("10.254.1.2").To4()
+	dstIP := net.ParseIP("142.250.180.206").To4() // YouTube/Google IP
+	srcPort := uint16(51234)
+	dstPort := uint16(443)
+
+	quicData := []byte("QUIC_INITIAL_CLIENT_HELLO_PACKET")
+	udpHdr := make([]byte, 8)
+	binary.BigEndian.PutUint16(udpHdr[0:2], srcPort)
+	binary.BigEndian.PutUint16(udpHdr[2:4], dstPort)
+	binary.BigEndian.PutUint16(udpHdr[4:6], uint16(8+len(quicData)))
+
+	ipHdr := make([]byte, 20)
+	ipHdr[0] = 0x45
+	binary.BigEndian.PutUint16(ipHdr[2:4], uint16(20+8+len(quicData)))
+	ipHdr[9] = ProtoUDP
+	copy(ipHdr[12:16], srcIP)
+	copy(ipHdr[16:20], dstIP)
+	binary.BigEndian.PutUint16(ipHdr[10:12], checksum(ipHdr))
+
+	pkt := append(ipHdr, append(udpHdr, quicData...)...)
+	mockDev.inBuf <- pkt
+
+	select {
+	case reply := <-mockDev.outBuf:
+		if len(reply) < 20+8 {
+			t.Fatalf("ICMP reply too short: %d", len(reply))
+		}
+		// Verify IPv4 header
+		proto := reply[9]
+		if proto != ProtoICMP {
+			t.Fatalf("expected protocol ICMP (1), got %d", proto)
+		}
+		repSrc := net.IP(reply[12:16]).String()
+		repDst := net.IP(reply[16:20]).String()
+		if repSrc != "142.250.180.206" || repDst != "10.254.1.2" {
+			t.Fatalf("unexpected ICMP IPs: src=%s, dst=%s", repSrc, repDst)
+		}
+
+		// Verify ICMP Type 3 (Destination Unreachable), Code 3 (Port Unreachable)
+		icmpReply := reply[20:]
+		if icmpReply[0] != 3 || icmpReply[1] != 3 {
+			t.Fatalf("expected ICMP Type 3 Code 3 (Port Unreachable), got Type %d Code %d", icmpReply[0], icmpReply[1])
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timeout waiting for ICMP Port Unreachable response")
+	}
+}
+
+func TestNetStack_TCPSYN_Deduplication(t *testing.T) {
+	mockDev := newMockTunDevice()
+	ns := NewNetStack(mockDev, nil, nil, nil)
+	ns.Start()
+	defer ns.Stop()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer ln.Close()
+
+	targetPort := uint16(ln.Addr().(*net.TCPAddr).Port)
+	acceptedCount := 0
+	var acceptMu sync.Mutex
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			acceptMu.Lock()
+			acceptedCount++
+			acceptMu.Unlock()
+			_ = conn.Close()
+		}
+	}()
+
+	srcIP := net.ParseIP("10.254.1.2").To4()
+	dstIP := net.ParseIP("127.0.0.1").To4()
+	srcPort := uint16(48888)
+
+	clientInitSeq := uint32(9000)
+	makeSYN := func() []byte {
+		synHdr := make([]byte, 20)
+		binary.BigEndian.PutUint16(synHdr[0:2], srcPort)
+		binary.BigEndian.PutUint16(synHdr[2:4], targetPort)
+		binary.BigEndian.PutUint32(synHdr[4:8], clientInitSeq)
+		synHdr[12] = 0x50
+		synHdr[13] = TCPFlagSYN
+		binary.BigEndian.PutUint16(synHdr[14:16], 65535)
+
+		ipHdr := make([]byte, 20)
+		ipHdr[0] = 0x45
+		binary.BigEndian.PutUint16(ipHdr[2:4], 40)
+		ipHdr[9] = ProtoTCP
+		copy(ipHdr[12:16], srcIP)
+		copy(ipHdr[16:20], dstIP)
+		binary.BigEndian.PutUint16(ipHdr[10:12], checksum(ipHdr))
+
+		return append(ipHdr, synHdr...)
+	}
+
+	// Send duplicate SYNs rapidly (simulating mobile RTO retransmit)
+	mockDev.inBuf <- makeSYN()
+	mockDev.inBuf <- makeSYN()
+
+	// Exactly 1 SYN-ACK should be received
+	select {
+	case reply := <-mockDev.outBuf:
+		tcpReply := reply[20:]
+		if tcpReply[13] != (TCPFlagSYN | TCPFlagACK) {
+			t.Fatalf("expected SYN-ACK flags 0x12, got 0x%02x", tcpReply[13])
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timeout waiting for SYN-ACK")
+	}
+
+	// Wait brief moment and verify server was dialed only once
+	time.Sleep(100 * time.Millisecond)
+	acceptMu.Lock()
+	count := acceptedCount
+	acceptMu.Unlock()
+
+	if count != 1 {
+		t.Fatalf("expected exactly 1 accepted outbound connection, got %d", count)
+	}
+}

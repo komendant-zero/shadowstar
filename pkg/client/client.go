@@ -738,6 +738,11 @@ func (c *Client) handleSocksClient(conn net.Conn) {
 		_, _ = conn.Write([]byte{0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0}) // Connection not allowed
 		return
 	case routing.ActionDirect:
+		_, portStr, _ := net.SplitHostPort(destAddr)
+		if isLocalHost(destAddr) && (portStr == "10809" || portStr == "10808" || portStr == "10810" || portStr == "10811" || portStr == "18080") {
+			_, _ = conn.Write([]byte{0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+			return
+		}
 		localConn, err := net.DialTimeout("tcp", destAddr, 5*time.Second)
 		if err != nil {
 			_, _ = conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
@@ -1203,24 +1208,17 @@ func (c *Client) pipeBidirectional(local io.ReadWriteCloser, remote io.ReadWrite
 	// Local -> Remote (Upload)
 	go func() {
 		defer wg.Done()
+		defer once.Do(closeBoth)
 		buf := make([]byte, 32768)
 		for {
 			n, err := local.Read(buf)
 			if n > 0 {
 				c.bytesUp.Add(uint64(n))
 				if _, wErr := remote.Write(buf[:n]); wErr != nil {
-					once.Do(closeBoth)
 					break
 				}
 			}
 			if err != nil {
-				// Client finished sending data (EOF / half-close)
-				if tcp, ok := remote.(*net.TCPConn); ok {
-					_ = tcp.CloseWrite()
-				}
-				if err != io.EOF {
-					once.Do(closeBoth)
-				}
 				break
 			}
 		}
@@ -1240,7 +1238,6 @@ func (c *Client) pipeBidirectional(local io.ReadWriteCloser, remote io.ReadWrite
 				}
 			}
 			if err != nil {
-				// Server finished sending response
 				break
 			}
 		}

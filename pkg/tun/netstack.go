@@ -47,6 +47,9 @@ type activeTCPConn struct {
 	lastActive atomic.Int64
 	closed     atomic.Bool
 	writeMu    sync.Mutex
+	inCh       chan []byte
+	stopWorker chan struct{}
+	closeOnce  sync.Once
 }
 
 type udpConnKey struct {
@@ -77,12 +80,28 @@ type NetStack struct {
 	dnsResolver *dns.Resolver
 	socksAddr   string
 	
-	tcpConns map[tcpConnKey]*activeTCPConn
-	tcpMu    sync.RWMutex
-	udpConns map[udpConnKey]*activeUDPConn
-	udpMu    sync.RWMutex
-	running  atomic.Bool
-	stopChan chan struct{}
+	tcpConns      map[tcpConnKey]*activeTCPConn
+	tcpMu         sync.RWMutex
+	tcpConnecting map[tcpConnKey]bool
+	connectingMu  sync.Mutex
+	udpConns      map[udpConnKey]*activeUDPConn
+	udpMu         sync.RWMutex
+	gameMode      atomic.Bool
+	running       atomic.Bool
+	stopChan      chan struct{}
+}
+
+// SetGameMode toggles low-latency Game Boost mode (force proxy for all game traffic, 0 jitter)
+func (ns *NetStack) SetGameMode(enabled bool) {
+	ns.gameMode.Store(enabled)
+	if ns.client != nil {
+		ns.client.SetUDPObfuscation(!enabled)
+	}
+}
+
+// IsGameMode reports whether Game Boost mode is active
+func (ns *NetStack) IsGameMode() bool {
+	return ns.gameMode.Load()
 }
 
 // SetSocksAddr sets the upstream SOCKS5 proxy address (default: 127.0.0.1:10808)
@@ -102,14 +121,18 @@ func NewNetStack(dev io.ReadWriter, c *client.Client, r routing.Engine, f dns.Fa
 	if r == nil {
 		r, _ = routing.NewEngine(routing.DefaultConfig())
 	}
+	if f == nil {
+		f, _ = dns.NewFakeDNS("198.18.0.0/15")
+	}
 	return &NetStack{
-		device:   dev,
-		client:   c,
-		router:   r,
-		fakeDNS:  f,
-		tcpConns: make(map[tcpConnKey]*activeTCPConn),
-		udpConns: make(map[udpConnKey]*activeUDPConn),
-		stopChan: make(chan struct{}),
+		device:        dev,
+		client:        c,
+		router:        r,
+		fakeDNS:       f,
+		tcpConns:      make(map[tcpConnKey]*activeTCPConn),
+		tcpConnecting: make(map[tcpConnKey]bool),
+		udpConns:      make(map[udpConnKey]*activeUDPConn),
+		stopChan:      make(chan struct{}),
 	}
 }
 
@@ -120,6 +143,25 @@ func (ns *NetStack) Start() {
 	go ns.reaperLoop()
 }
 
+// closeTCPConn safely shuts down an active TCP session
+func (ns *NetStack) closeTCPConn(connObj *activeTCPConn) {
+	if connObj == nil {
+		return
+	}
+	connObj.closeOnce.Do(func() {
+		connObj.closed.Store(true)
+		if connObj.stopWorker != nil {
+			close(connObj.stopWorker)
+		}
+		if connObj.remoteConn != nil {
+			_ = connObj.remoteConn.Close()
+		}
+		ns.tcpMu.Lock()
+		delete(ns.tcpConns, connObj.key)
+		ns.tcpMu.Unlock()
+	})
+}
+
 // Stop cleanly terminates the netstack
 func (ns *NetStack) Stop() {
 	if !ns.running.Swap(false) {
@@ -128,14 +170,15 @@ func (ns *NetStack) Stop() {
 	close(ns.stopChan)
 
 	ns.tcpMu.Lock()
-	for k, c := range ns.tcpConns {
-		c.closed.Store(true)
-		if c.remoteConn != nil {
-			_ = c.remoteConn.Close()
-		}
-		delete(ns.tcpConns, k)
+	conns := make([]*activeTCPConn, 0, len(ns.tcpConns))
+	for _, c := range ns.tcpConns {
+		conns = append(conns, c)
 	}
 	ns.tcpMu.Unlock()
+
+	for _, c := range conns {
+		ns.closeTCPConn(c)
+	}
 
 	ns.udpMu.Lock()
 	for k, c := range ns.udpConns {
@@ -171,7 +214,7 @@ func (ns *NetStack) readLoop() {
 
 		packet := make([]byte, n)
 		copy(packet, buf[:n])
-		go ns.processIPv4Packet(packet)
+		ns.processIPv4Packet(packet)
 	}
 }
 
@@ -220,6 +263,36 @@ func (ns *NetStack) handleICMP(srcIP, dstIP net.IP, payload []byte) {
 	ns.sendIPv4Packet(dstIP, srcIP, ProtoICMP, reply)
 }
 
+// sendICMPPortUnreachable replies with RFC 792 ICMP Type 3, Code 3 (Port Unreachable)
+func (ns *NetStack) sendICMPPortUnreachable(clientIP, serverIP net.IP, origPayload []byte) {
+	origUDPHdr := origPayload
+	if len(origUDPHdr) > 8 {
+		origUDPHdr = origUDPHdr[:8]
+	}
+
+	origIPHdr := make([]byte, 20)
+	origIPHdr[0] = 0x45
+	binary.BigEndian.PutUint16(origIPHdr[2:4], uint16(20+len(origPayload)))
+	origIPHdr[6] = 0x40 // DF
+	origIPHdr[8] = 64   // TTL
+	origIPHdr[9] = ProtoUDP
+	copy(origIPHdr[12:16], clientIP.To4())
+	copy(origIPHdr[16:20], serverIP.To4())
+	binary.BigEndian.PutUint16(origIPHdr[10:12], checksum(origIPHdr))
+
+	icmpPayload := make([]byte, 4+20+len(origUDPHdr))
+	icmpPayload[0] = 3 // Type 3: Destination Unreachable
+	icmpPayload[1] = 3 // Code 3: Port Unreachable
+	copy(icmpPayload[8:28], origIPHdr)
+	copy(icmpPayload[28:], origUDPHdr)
+
+	cs := checksum(icmpPayload)
+	binary.BigEndian.PutUint16(icmpPayload[2:4], cs)
+
+	// Send ICMP reply from serverIP back to clientIP
+	ns.sendIPv4Packet(serverIP, clientIP, ProtoICMP, icmpPayload)
+}
+
 // handleUDP intercepts DNS (port 53) and general UDP
 func (ns *NetStack) handleUDP(srcIP, dstIP net.IP, payload []byte) {
 	if len(payload) < 8 {
@@ -237,6 +310,15 @@ func (ns *NetStack) handleUDP(srcIP, dstIP net.IP, payload []byte) {
 	// DNS queries (port 53)
 	if dstPort == 53 {
 		ns.handleDNSQuery(srcIP, dstIP, srcPort, udpData)
+		return
+	}
+
+	// Reject QUIC (UDP port 443):
+	// Send ICMP Port Unreachable so YouTube app, Google services, and browsers immediately
+	// fall back to TCP (HTTP/2 / HTTPS), eliminating QUIC-over-TCP latency collapse,
+	// endless buffering wheels, and ISP/TSPU UDP drops.
+	if dstPort == 443 {
+		ns.sendICMPPortUnreachable(srcIP, dstIP, payload)
 		return
 	}
 
@@ -263,7 +345,11 @@ func (ns *NetStack) handleUDP(srcIP, dstIP net.IP, payload []byte) {
 		return
 	}
 
-	// 2. New UDP session: evaluate route
+	// 2. New UDP session: evaluate route asynchronously
+	go ns.handleNewUDP(key, srcIP, dstIP, srcPort, dstPort, udpData)
+}
+
+func (ns *NetStack) handleNewUDP(key udpConnKey, srcIP, dstIP net.IP, srcPort, dstPort uint16, udpData []byte) {
 	destHost := dstIP.String()
 	if ns.fakeDNS != nil && ns.fakeDNS.IsFakeIP(dstIP) {
 		if realDomain, found := ns.fakeDNS.LookupDomain(dstIP); found {
@@ -273,7 +359,10 @@ func (ns *NetStack) handleUDP(srcIP, dstIP net.IP, payload []byte) {
 	destAddr := net.JoinHostPort(destHost, strconv.Itoa(int(dstPort)))
 
 	action := routing.ActionProxy
-	if ns.router != nil {
+	if ns.gameMode.Load() {
+		// Game Boost mode: enforce proxy for all game traffic to bypass regional/ISP blocks
+		action = routing.ActionProxy
+	} else if ns.router != nil {
 		action = ns.router.Match(destAddr)
 	}
 
@@ -281,9 +370,10 @@ func (ns *NetStack) handleUDP(srcIP, dstIP net.IP, payload []byte) {
 		return
 	}
 
-	ns.udpMu.Lock()
+	// Double-check existing session under read lock
+	ns.udpMu.RLock()
 	if connObj, exists := ns.udpConns[key]; exists && !connObj.closed.Load() {
-		ns.udpMu.Unlock()
+		ns.udpMu.RUnlock()
 		connObj.lastActive.Store(time.Now().Unix())
 		if connObj.isProxy {
 			pkt := buildSocksUDPPacket(connObj.targetHost, connObj.targetPort, udpData)
@@ -293,11 +383,11 @@ func (ns *NetStack) handleUDP(srcIP, dstIP net.IP, payload []byte) {
 		}
 		return
 	}
+	ns.udpMu.RUnlock()
 
 	if action == routing.ActionDirect {
 		dConn, err := net.DialTimeout("udp", destAddr, 3*time.Second)
 		if err != nil {
-			ns.udpMu.Unlock()
 			return
 		}
 		c := &activeUDPConn{
@@ -308,6 +398,14 @@ func (ns *NetStack) handleUDP(srcIP, dstIP net.IP, payload []byte) {
 			directConn: dConn,
 		}
 		c.lastActive.Store(time.Now().Unix())
+
+		ns.udpMu.Lock()
+		if old, exists := ns.udpConns[key]; exists && !old.closed.Load() {
+			ns.udpMu.Unlock()
+			_ = dConn.Close()
+			_, _ = old.directConn.Write(udpData)
+			return
+		}
 		ns.udpConns[key] = c
 		ns.udpMu.Unlock()
 
@@ -317,19 +415,16 @@ func (ns *NetStack) handleUDP(srcIP, dstIP net.IP, payload []byte) {
 		// ActionProxy: SOCKS5 UDP Associate via local SOCKS5 proxy
 		tcpConn, err := net.DialTimeout("tcp", ns.getSocksAddr(), 4*time.Second)
 		if err != nil {
-			ns.udpMu.Unlock()
 			return
 		}
 		relayAddr, err := socks5UDPAssociateHandshake(tcpConn)
 		if err != nil {
 			_ = tcpConn.Close()
-			ns.udpMu.Unlock()
 			return
 		}
 		uConn, err := net.DialUDP("udp", nil, relayAddr)
 		if err != nil {
 			_ = tcpConn.Close()
-			ns.udpMu.Unlock()
 			return
 		}
 
@@ -342,6 +437,16 @@ func (ns *NetStack) handleUDP(srcIP, dstIP net.IP, payload []byte) {
 			socksUDP:   uConn,
 		}
 		c.lastActive.Store(time.Now().Unix())
+
+		ns.udpMu.Lock()
+		if old, exists := ns.udpConns[key]; exists && !old.closed.Load() {
+			ns.udpMu.Unlock()
+			_ = tcpConn.Close()
+			_ = uConn.Close()
+			pkt := buildSocksUDPPacket(old.targetHost, old.targetPort, udpData)
+			_, _ = old.socksUDP.Write(pkt)
+			return
+		}
 		ns.udpConns[key] = c
 		ns.udpMu.Unlock()
 
@@ -419,6 +524,15 @@ func (ns *NetStack) handleDNSQuery(clientIP, dnsServerIP net.IP, clientPort uint
 		return
 	}
 
+	// 0. Immediate localhost resolution
+	if domain == "localhost" {
+		resp := buildSyntheticDNSResponse(txID, dnsData, qLen, "127.0.0.1")
+		if resp != nil {
+			ns.sendUDPPacket(dnsServerIP, clientIP, 53, clientPort, resp)
+		}
+		return
+	}
+
 	// 1. If A query (IPv4) and FakeDNS available, synthesize 198.18.0.x IP instantly
 	if qtype == 1 && ns.fakeDNS != nil {
 		fakeIP := ns.fakeDNS.Allocate(domain)
@@ -431,9 +545,9 @@ func (ns *NetStack) handleDNSQuery(clientIP, dnsServerIP net.IP, clientPort uint
 		}
 	}
 
-	// 2. For AAAA (IPv6) queries in an IPv4 tunnel, respond instantly with NOERROR (0 answers)
-	// so Android Happy Eyeballs immediately falls back to IPv4 without timeout.
-	if qtype == 28 {
+	// 2. For non-A queries (AAAA, Type 65 HTTPS/SVCB, etc.) in an IPv4 tunnel, respond instantly with NOERROR (0 answers)
+	// so Android Bionic resolver and Happy Eyeballs immediately fall back to IPv4 without timeout or malformed types.
+	if qtype != 1 {
 		resp := buildEmptyDNSResponse(txID, dnsData, qLen)
 		if resp != nil {
 			ns.sendUDPPacket(dnsServerIP, clientIP, 53, clientPort, resp)
@@ -478,7 +592,6 @@ func (ns *NetStack) handleTCP(srcIP, dstIP net.IP, payload []byte) {
 	if len(payload) < dataOffset {
 		return
 	}
-	tcpData := payload[dataOffset:]
 
 	key := tcpConnKey{
 		srcIP:   srcIP.String(),
@@ -489,138 +602,220 @@ func (ns *NetStack) handleTCP(srcIP, dstIP net.IP, payload []byte) {
 
 	// 1. Connection initiation: SYN
 	if flags&TCPFlagSYN != 0 && flags&TCPFlagACK == 0 {
-		destHost := dstIP.String()
-		if ns.fakeDNS != nil && ns.fakeDNS.IsFakeIP(dstIP) {
-			if dom, ok := ns.fakeDNS.LookupDomain(dstIP); ok {
-				destHost = dom
-			}
-		}
-		destAddr := net.JoinHostPort(destHost, strconv.Itoa(int(dstPort)))
-
-		// Check routing decision
-		action := routing.ActionProxy
-		if ns.router != nil {
-			action = ns.router.Match(destAddr)
-		}
-
-		if action == routing.ActionBlock {
-			// Reply with RST
-			ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, ack, seq+1, TCPFlagRST|TCPFlagACK, nil)
+		ns.tcpMu.RLock()
+		_, exists := ns.tcpConns[key]
+		ns.tcpMu.RUnlock()
+		if exists {
 			return
 		}
 
-		// Connect outbound (either direct or via ShadowStar proxy)
-		var remoteConn io.ReadWriteCloser
-		var dialErr error
-
-		if action == routing.ActionDirect {
-			remoteConn, dialErr = net.DialTimeout("tcp", destAddr, 5*time.Second)
-		} else {
-			// Connect via standard SOCKS5 handshake to local SOCKS5 proxy
-			c, err := net.DialTimeout("tcp", ns.getSocksAddr(), 4*time.Second)
-			if err == nil {
-				if sErr := socks5Handshake(c, destAddr); sErr == nil {
-					remoteConn = c
-				} else {
-					c.Close()
-					dialErr = sErr
-				}
-			} else {
-				dialErr = err
-			}
+		ns.connectingMu.Lock()
+		if ns.tcpConnecting[key] {
+			ns.connectingMu.Unlock()
+			return // Already connecting, deduplicate retransmitted SYN
 		}
+		ns.tcpConnecting[key] = true
+		ns.connectingMu.Unlock()
 
-		if dialErr != nil {
-			// Reject with RST
-			ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, ack, seq+1, TCPFlagRST|TCPFlagACK, nil)
-			return
-		}
-
-		initialServerSeq := uint32(time.Now().UnixNano()&0x7FFFFFFF) + 10000
-		connObj := &activeTCPConn{
-			key:        key,
-			targetAddr: destAddr,
-			remoteConn: remoteConn,
-			clientSeq:  seq + 1,
-			serverSeq:  initialServerSeq + 1,
-		}
-		connObj.lastActive.Store(time.Now().Unix())
-
-		ns.tcpMu.Lock()
-		if old, exists := ns.tcpConns[key]; exists {
-			old.closed.Store(true)
-			if old.remoteConn != nil {
-				_ = old.remoteConn.Close()
-			}
-		}
-		ns.tcpConns[key] = connObj
-		ns.tcpMu.Unlock()
-
-		// Send SYN-ACK back to client
-		ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, initialServerSeq, seq+1, TCPFlagSYN|TCPFlagACK, nil)
-
-		// Start background reader from remote connection -> TUN
-		go ns.forwardRemoteToTUN(connObj, srcIP, dstIP, srcPort, dstPort)
+		go ns.handleTCPSYN(key, srcIP, dstIP, srcPort, dstPort, seq, ack)
 		return
 	}
 
-	// 2. Existing connection
+	// 2. Existing connection: dispatch to dedicated in-order worker
 	ns.tcpMu.RLock()
 	connObj, exists := ns.tcpConns[key]
 	ns.tcpMu.RUnlock()
 
 	if !exists || connObj.closed.Load() {
-		if flags&TCPFlagRST == 0 {
+		ns.connectingMu.Lock()
+		connecting := ns.tcpConnecting[key]
+		ns.connectingMu.Unlock()
+
+		if !connecting && flags&TCPFlagRST == 0 {
 			ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, ack, seq, TCPFlagRST|TCPFlagACK, nil)
 		}
 		return
 	}
 
+	if !connObj.closed.Load() {
+		select {
+		case connObj.inCh <- payload:
+		default:
+			// Queue full - packet dropped (TCP backpressure throttles sender)
+		}
+	}
+}
+
+func (ns *NetStack) handleTCPSYN(key tcpConnKey, srcIP, dstIP net.IP, srcPort, dstPort uint16, seq, ack uint32) {
+	defer func() {
+		ns.connectingMu.Lock()
+		delete(ns.tcpConnecting, key)
+		ns.connectingMu.Unlock()
+	}()
+
+	destHost := dstIP.String()
+	if ns.fakeDNS != nil && ns.fakeDNS.IsFakeIP(dstIP) {
+		if dom, ok := ns.fakeDNS.LookupDomain(dstIP); ok {
+			destHost = dom
+		}
+	}
+	destAddr := net.JoinHostPort(destHost, strconv.Itoa(int(dstPort)))
+
+	// Prevent recursive loopback self-proxying
+	if dstIP.IsLoopback() || destHost == "localhost" || destHost == "127.0.0.1" {
+		if dstPort == 10808 || dstPort == 10809 || dstPort == 10810 || dstPort == 10811 || dstPort == 18080 {
+			ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, ack, seq+1, TCPFlagRST|TCPFlagACK, nil)
+			return
+		}
+	}
+
+	// Check routing decision
+	action := routing.ActionProxy
+	if ns.gameMode.Load() {
+		action = routing.ActionProxy
+	} else if ns.router != nil {
+		action = ns.router.Match(destAddr)
+	}
+
+	if action == routing.ActionBlock {
+		// Reply with RST
+		ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, ack, seq+1, TCPFlagRST|TCPFlagACK, nil)
+		return
+	}
+
+	// Connect outbound (either direct or via ShadowStar proxy)
+	var remoteConn io.ReadWriteCloser
+	var dialErr error
+
+	if action == routing.ActionDirect {
+		remoteConn, dialErr = net.DialTimeout("tcp", destAddr, 5*time.Second)
+	} else {
+		// Connect via standard SOCKS5 handshake to local SOCKS5 proxy
+		c, err := net.DialTimeout("tcp", ns.getSocksAddr(), 4*time.Second)
+		if err == nil {
+			if sErr := socks5Handshake(c, destAddr); sErr == nil {
+				remoteConn = c
+			} else {
+				c.Close()
+				dialErr = sErr
+			}
+		} else {
+			dialErr = err
+		}
+	}
+
+	if dialErr != nil {
+		// Reject with RST
+		ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, ack, seq+1, TCPFlagRST|TCPFlagACK, nil)
+		return
+	}
+
+	initialServerSeq := uint32(time.Now().UnixNano()&0x7FFFFFFF) + 10000
+	connObj := &activeTCPConn{
+		key:        key,
+		targetAddr: destAddr,
+		remoteConn: remoteConn,
+		clientSeq:  seq + 1,
+		serverSeq:  initialServerSeq + 1,
+		inCh:       make(chan []byte, 256),
+		stopWorker: make(chan struct{}),
+	}
 	connObj.lastActive.Store(time.Now().Unix())
 
+	ns.tcpMu.Lock()
+	if old, exists := ns.tcpConns[key]; exists {
+		ns.closeTCPConn(old)
+	}
+	ns.tcpConns[key] = connObj
+	ns.tcpMu.Unlock()
+
+	// Send SYN-ACK back to client (with MSS 1360, Window Scale 7, SACK Permitted options)
+	ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, initialServerSeq, seq+1, TCPFlagSYN|TCPFlagACK, nil)
+
+	// Start per-connection in-order worker for client packets
+	go ns.tcpConnectionInWorker(connObj, srcIP, dstIP, srcPort, dstPort)
+
+	// Start background reader from remote connection -> TUN
+	go ns.forwardRemoteToTUN(connObj, srcIP, dstIP, srcPort, dstPort)
+}
+
+func (ns *NetStack) tcpConnectionInWorker(connObj *activeTCPConn, srcIP, dstIP net.IP, srcPort, dstPort uint16) {
+	for {
+		select {
+		case <-ns.stopChan:
+			return
+		case <-connObj.stopWorker:
+			return
+		case payload, ok := <-connObj.inCh:
+			if !ok || connObj.closed.Load() {
+				return
+			}
+			ns.handleTCPData(connObj, srcIP, dstIP, srcPort, dstPort, payload)
+		}
+	}
+}
+
+func (ns *NetStack) handleTCPData(connObj *activeTCPConn, srcIP, dstIP net.IP, srcPort, dstPort uint16, payload []byte) {
+	if len(payload) < 20 {
+		return
+	}
+	seq := binary.BigEndian.Uint32(payload[4:8])
+	dataOffset := int(payload[12]>>4) * 4
+	flags := payload[13]
+
+	if len(payload) < dataOffset {
+		return
+	}
+	tcpData := payload[dataOffset:]
+
+	connObj.lastActive.Store(time.Now().Unix())
+
+	hasData := len(tcpData) > 0
+	endSeq := seq + uint32(len(tcpData))
+
 	// Client sends data
-	if len(tcpData) > 0 {
-		connObj.clientSeq = seq + uint32(len(tcpData))
-		_, _ = connObj.remoteConn.Write(tcpData)
+	if hasData {
+		if endSeq > connObj.clientSeq {
+			offset := uint32(0)
+			if seq < connObj.clientSeq {
+				offset = connObj.clientSeq - seq
+			}
+			if offset < uint32(len(tcpData)) {
+				_, _ = connObj.remoteConn.Write(tcpData[offset:])
+			}
+			connObj.clientSeq = endSeq
+		}
 		// Send ACK back
 		ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, connObj.serverSeq, connObj.clientSeq, TCPFlagACK, nil)
 	}
 
 	// Client sends FIN
 	if flags&TCPFlagFIN != 0 {
-		connObj.clientSeq = seq + 1
+		if hasData {
+			connObj.clientSeq = endSeq + 1
+		} else {
+			connObj.clientSeq = seq + 1
+		}
 		ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, connObj.serverSeq, connObj.clientSeq, TCPFlagACK, nil)
-		connObj.closed.Store(true)
-		_ = connObj.remoteConn.Close()
-		ns.tcpMu.Lock()
-		delete(ns.tcpConns, key)
-		ns.tcpMu.Unlock()
+		ns.closeTCPConn(connObj)
+		return
 	}
 
 	// Client sends RST
 	if flags&TCPFlagRST != 0 {
-		connObj.closed.Store(true)
-		_ = connObj.remoteConn.Close()
-		ns.tcpMu.Lock()
-		delete(ns.tcpConns, key)
-		ns.tcpMu.Unlock()
+		ns.closeTCPConn(connObj)
+		return
 	}
 }
 
 func (ns *NetStack) forwardRemoteToTUN(connObj *activeTCPConn, srcIP, dstIP net.IP, srcPort, dstPort uint16) {
 	defer func() {
-		connObj.closed.Store(true)
-		if connObj.remoteConn != nil {
-			_ = connObj.remoteConn.Close()
-		}
-		ns.tcpMu.Lock()
-		delete(ns.tcpConns, connObj.key)
-		ns.tcpMu.Unlock()
 		// Send FIN to client
 		ns.sendTCPPacket(dstIP, srcIP, dstPort, srcPort, connObj.serverSeq, connObj.clientSeq, TCPFlagFIN|TCPFlagACK, nil)
+		ns.closeTCPConn(connObj)
 	}()
 
-	buf := make([]byte, 16384)
+	buf := make([]byte, 32768)
 	for ns.running.Load() && !connObj.closed.Load() {
 		n, err := connObj.remoteConn.Read(buf)
 		if n > 0 {
@@ -661,17 +856,18 @@ func (ns *NetStack) reaperLoop() {
 		case <-ticker.C:
 			now := time.Now().Unix()
 			// 1. Reap idle TCP connections (> 120s)
-			ns.tcpMu.Lock()
-			for k, c := range ns.tcpConns {
+			var toClose []*activeTCPConn
+			ns.tcpMu.RLock()
+			for _, c := range ns.tcpConns {
 				if now-c.lastActive.Load() > 120 || c.closed.Load() {
-					c.closed.Store(true)
-					if c.remoteConn != nil {
-						_ = c.remoteConn.Close()
-					}
-					delete(ns.tcpConns, k)
+					toClose = append(toClose, c)
 				}
 			}
-			ns.tcpMu.Unlock()
+			ns.tcpMu.RUnlock()
+
+			for _, c := range toClose {
+				ns.closeTCPConn(c)
+			}
 
 			// 2. Reap idle UDP sessions (> 60s)
 			ns.udpMu.Lock()
@@ -719,16 +915,46 @@ func (ns *NetStack) sendIPv4Packet(srcIP, dstIP net.IP, proto byte, payload []by
 }
 
 func (ns *NetStack) sendTCPPacket(srcIP, dstIP net.IP, srcPort, dstPort uint16, seq, ack uint32, flags byte, data []byte) {
-	tcpLen := 20 + len(data)
-	tcpHdr := make([]byte, 20)
+	var tcpHdrLen int
+	var tcpHdr []byte
+	isSYN := flags&TCPFlagSYN != 0
+
+	if isSYN {
+		// Include standard TCP options for SYN and SYN-ACK:
+		// Total 12 bytes of options -> 32-byte header (Data Offset = 8 words = 0x80)
+		tcpHdrLen = 32
+		tcpHdr = make([]byte, tcpHdrLen)
+		tcpHdr[12] = 0x80 // Data offset: 8 32-bit words (32 bytes)
+		// Option 1: MSS (Kind 2, Length 4, Value 1360 = 0x0550)
+		tcpHdr[20] = 0x02
+		tcpHdr[21] = 0x04
+		binary.BigEndian.PutUint16(tcpHdr[22:24], 1360)
+		// Option 2: NOP
+		tcpHdr[24] = 0x01
+		// Option 3: Window Scale (Kind 3, Length 3, Shift 7 -> 128x multiplier)
+		tcpHdr[25] = 0x03
+		tcpHdr[26] = 0x03
+		tcpHdr[27] = 0x07
+		// Option 4: SACK Permitted (Kind 4, Length 2)
+		tcpHdr[28] = 0x04
+		tcpHdr[29] = 0x02
+		// Option 5: NOP padding to 4-byte boundary
+		tcpHdr[30] = 0x01
+		tcpHdr[31] = 0x01
+	} else {
+		tcpHdrLen = 20
+		tcpHdr = make([]byte, tcpHdrLen)
+		tcpHdr[12] = 0x50 // Data offset: 5 32-bit words (20 bytes)
+	}
+
 	binary.BigEndian.PutUint16(tcpHdr[0:2], srcPort)
 	binary.BigEndian.PutUint16(tcpHdr[2:4], dstPort)
 	binary.BigEndian.PutUint32(tcpHdr[4:8], seq)
 	binary.BigEndian.PutUint32(tcpHdr[8:12], ack)
-	tcpHdr[12] = 0x50 // Data offset: 5 32-bit words (20 bytes)
 	tcpHdr[13] = flags
-	binary.BigEndian.PutUint16(tcpHdr[14:16], 65535) // Window size
+	binary.BigEndian.PutUint16(tcpHdr[14:16], 65535) // Window size (65535 * 128 = 8.3 MB with scale 7)
 
+	tcpLen := tcpHdrLen + len(data)
 	// TCP Pseudo-header checksum
 	pseudo := make([]byte, 12+tcpLen)
 	copy(pseudo[0:4], srcIP.To4())
@@ -736,9 +962,9 @@ func (ns *NetStack) sendTCPPacket(srcIP, dstIP net.IP, srcPort, dstPort uint16, 
 	pseudo[8] = 0
 	pseudo[9] = ProtoTCP
 	binary.BigEndian.PutUint16(pseudo[10:12], uint16(tcpLen))
-	copy(pseudo[12:32], tcpHdr)
+	copy(pseudo[12:12+tcpHdrLen], tcpHdr)
 	if len(data) > 0 {
-		copy(pseudo[32:], data)
+		copy(pseudo[12+tcpHdrLen:], data)
 	}
 
 	cs := checksum(pseudo)

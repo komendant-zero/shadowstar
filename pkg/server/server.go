@@ -264,14 +264,9 @@ func (s *Server) handleMuxStream(stream *protocol.MuxStream) {
 	// Stream -> Target (Upload)
 	go func() {
 		defer wg.Done()
+		defer once.Do(closeBoth)
 		buf := make([]byte, 32768)
-		_, err := io.CopyBuffer(targetConn, stream, buf)
-		if tcp, ok := targetConn.(*net.TCPConn); ok {
-			_ = tcp.CloseWrite()
-		}
-		if err != nil && err != io.EOF {
-			once.Do(closeBoth)
-		}
+		_, _ = io.CopyBuffer(targetConn, stream, buf)
 	}()
 
 	// Target -> Stream (Download)

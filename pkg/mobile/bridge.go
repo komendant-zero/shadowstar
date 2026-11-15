@@ -13,6 +13,7 @@ import (
 
 	"github.com/shadowstar/shadowstar/pkg/client"
 	"github.com/shadowstar/shadowstar/pkg/config"
+	"github.com/shadowstar/shadowstar/pkg/dns"
 	"github.com/shadowstar/shadowstar/pkg/tun"
 )
 
@@ -38,6 +39,7 @@ type MobileBridge struct {
 	socksAddr    string
 	httpAddr     string
 	relayAddr    string
+	gameMode     bool
 	startTime    time.Time
 }
 
@@ -90,9 +92,17 @@ func StartVPN(profileJSON string) (string, error) {
 		return "", fmt.Errorf("failed to start client: %w", err)
 	}
 
+	// Initialize FakeDNS and Router for Android L3 NetStack
+	fakeDNS, _ := dns.NewFakeDNS("198.18.0.0/15")
+	router := c.GetRouter()
+
 	// Start Android L3 packet relay for games & raw socket proxying
-	relay, rErr := tun.NewPacketRelay(b.relayAddr, c, nil, nil)
+	relay, rErr := tun.NewPacketRelay(b.relayAddr, c, router, fakeDNS)
 	if rErr == nil {
+		if b.gameMode {
+			relay.SetGameMode(true)
+			c.SetUDPObfuscation(false)
+		}
 		relay.Start()
 		b.packetRelay = relay
 	}
@@ -131,6 +141,26 @@ func IsConnected() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.connected
+}
+
+// SetGameMode toggles low-latency gaming acceleration and full-tunnel unblocking
+func (b *MobileBridge) SetGameMode(enabled bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.gameMode = enabled
+	if b.packetRelay != nil {
+		b.packetRelay.SetGameMode(enabled)
+	}
+	if b.client != nil {
+		b.client.SetUDPObfuscation(!enabled)
+	}
+}
+
+// IsGameMode reports whether game boost mode is active
+func (b *MobileBridge) IsGameMode() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.gameMode
 }
 
 // MobileStats represents real-time telemetry for mobile UI

@@ -112,17 +112,17 @@
         </button>
       </section>
 
-      <!-- Game Mode / Split Tunneling Switch -->
+      <!-- Game Mode / Low-Latency Game Boost Switch -->
       <section class="game-mode-card" id="game-mode-card">
         <div class="game-mode-left">
           <span class="game-mode-icon">🎮</span>
           <div class="game-mode-info">
-            <div class="game-mode-title" data-i18n="gameModeTitle">Игровой режим (Bypass)</div>
-            <div class="game-mode-sub" data-i18n="gameModeSub">Прямой доступ для игр (Billionaire Casino и др.)</div>
+            <div class="game-mode-title" data-i18n="gameModeTitle">Игровой режим (Game Boost)</div>
+            <div class="game-mode-sub" data-i18n="gameModeSub">Разблокировка и низкий пинг для игр (Brawl Stars, Roblox, Casino и др.)</div>
           </div>
         </div>
-        <label class="toggle-switch" title="Включить прямой доступ для игр в обход VPN">
-          <input type="checkbox" id="game-bypass-toggle" onchange="toggleGameBypass(this.checked)">
+        <label class="toggle-switch" title="Включить игровой режим (минимальный пинг и доступ к заблокированным играм)">
+          <input type="checkbox" id="game-mode-toggle" onchange="toggleGameMode(this.checked)">
           <span class="toggle-slider"></span>
         </label>
       </section>

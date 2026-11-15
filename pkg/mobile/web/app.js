@@ -1,6 +1,6 @@
-// ShadowStar Mobile Web / PWA Engine v2.0.3
+// ShadowStar Mobile Web / PWA Engine v2.0.4
 const API_BASE = 'http://127.0.0.1:10810/api';
-const CURRENT_VERSION = 'v2.0.3';
+const CURRENT_VERSION = 'v2.0.4';
 
 const i18n = {
   ru: {
@@ -30,6 +30,7 @@ const i18n = {
     btnInstallUpdate: 'Установить обновление',
     btnDownloadApk: 'Скачать ShadowStar.apk',
     shieldActive: 'Анти-DPI защита активна:',
+    transportLabel: 'Транспорт:',
     gameModeTitle: 'Игровой режим (Game Boost)',
     gameModeSub: 'Разблокировка и низкий пинг для игр (Brawl Stars, Roblox, Casino и др.)',
     gameModeOn: '🎮 Игровой режим включен: минимальный пинг и доступ к заблокированным играм',
@@ -75,6 +76,7 @@ const i18n = {
     btnInstallUpdate: 'Install Update Now',
     btnDownloadApk: 'Download ShadowStar.apk',
     shieldActive: 'Anti-DPI shield active:',
+    transportLabel: 'Transport:',
     gameModeTitle: 'Game Mode (Boost & Unblock)',
     gameModeSub: 'Lowest ping & unblocked access (Brawl Stars, Roblox, Casino, etc.)',
     gameModeOn: '🎮 Game Mode active: lowest ping & unblocked games',
@@ -225,15 +227,27 @@ function toggleGameMode(enabled) {
 const initGameBypass = initGameMode;
 const toggleGameBypass = toggleGameMode;
 
-function loadTransport() {
-  const sel = document.getElementById('transport-select');
-  if (!sel) return;
+function selectTransport(val) {
+  val = (val || 'tcp').toLowerCase();
+  updateTransportUI(val);
+  switchTransport(val);
+}
 
+function updateTransportUI(val) {
+  val = (val || 'tcp').toLowerCase();
+  document.querySelectorAll('#transport-segmented .segment-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-val') === val);
+  });
+  const sel = document.getElementById('transport-select');
+  if (sel) sel.value = val;
+}
+
+function loadTransport() {
   fetch(`${API_BASE}/transport`)
     .then(r => r.json())
     .then(res => {
       if (res && res.data && res.data.transport) {
-        sel.value = res.data.transport;
+        updateTransportUI(res.data.transport);
       }
     })
     .catch(() => {});
@@ -241,6 +255,7 @@ function loadTransport() {
 
 function switchTransport(val) {
   val = (val || 'tcp').toLowerCase();
+  updateTransportUI(val);
   fetch(`${API_BASE}/transport`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -42,7 +42,12 @@ Write-Host "Packaging shadowstar-windows-amd64.zip..."
 New-Item -ItemType Directory -Path "$TempPkg\windows-amd64" -Force | Out-Null
 Copy-Item "$RelDir\shadowstar.exe" "$TempPkg\windows-amd64\" -Force
 Copy-Item "shadowstar-client.json" "$TempPkg\windows-amd64\" -Force
-Copy-Item "bin\run-tun.bat" "$TempPkg\windows-amd64\" -Force
+if (Test-Path "wintun.dll") {
+    Copy-Item "wintun.dll" "$TempPkg\windows-amd64\" -Force
+}
+if (Test-Path "bin\run-v2-tun.bat") {
+    Copy-Item "bin\run-v2-tun.bat" "$TempPkg\windows-amd64\run-tun.bat" -Force
+}
 if (Test-Path "bin\run-v2-gui.bat") {
     Copy-Item "bin\run-v2-gui.bat" "$TempPkg\windows-amd64\run-gui.bat" -Force
 }

@@ -281,7 +281,7 @@ func main() {
 		fmt.Printf("  🌐 Active Server: %s (%s)\n", activeProfile.Name, activeProfile.ServerAddr)
 		fmt.Println("=====================================================")
 
-		if *connect {
+		if *connect || *useTun {
 			if err := c.Start(); err != nil {
 				log.Printf("[Warning] Auto-connect failed: %v", err)
 			} else {

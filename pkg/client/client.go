@@ -436,6 +436,33 @@ func (c *Client) Stop() error {
 	return nil
 }
 
+// IsRunning reports whether the client proxy engine is active
+func (c *Client) IsRunning() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.running
+}
+
+// AddBytesUp adds to the client's transmitted byte counter
+func (c *Client) AddBytesUp(n uint64) {
+	c.bytesUp.Add(n)
+}
+
+// AddBytesDown adds to the client's received byte counter
+func (c *Client) AddBytesDown(n uint64) {
+	c.bytesDown.Add(n)
+}
+
+// GetSocksAddr returns the active SOCKS5 listen address
+func (c *Client) GetSocksAddr() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.socksAddr != "" {
+		return c.socksAddr
+	}
+	return "127.0.0.1:10808"
+}
+
 // UpdateProfile updates the remote server profile and reconnects
 func (c *Client) GetProfile() ServerProfile {
 	c.mu.RLock()

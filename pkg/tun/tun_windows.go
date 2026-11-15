@@ -20,15 +20,21 @@ func (m *Manager) Start(vpsAddr string) error {
 		return nil
 	}
 
+	// 0. Ensure underlying client engine is running for proxying
+	if m.client != nil && !m.client.IsRunning() {
+		_ = m.client.Start()
+	}
+
 	// 1. Resolve remote VPS IP
 	vpsHost := vpsAddr
 	if host, _, err := net.SplitHostPort(vpsAddr); err == nil {
 		vpsHost = host
 	}
 	vpsHost = strings.TrimSpace(vpsHost)
+	m.vpsHost = vpsHost
 
-	// 2. Discover physical default gateway
-	defGW := getDefaultGateway()
+	// 2. Discover physical default gateway and interface IP
+	defGW, physIP := getGatewayAndInterface()
 	if defGW == "" {
 		defGW = "192.168.1.1"
 	}
@@ -59,8 +65,10 @@ func (m *Manager) Start(vpsAddr string) error {
 	setIPCmd := fmt.Sprintf(`netsh interface ip set address name="%s" source=static addr=%s mask=%s gateway=none`, devName, addr, mask)
 	runHiddenCmd("cmd", "/C", setIPCmd)
 
-	setDNSCmd := fmt.Sprintf(`netsh interface ip set dns name="%s" static 198.18.0.1`, devName)
+	setDNSCmd := fmt.Sprintf(`netsh interface ip set dnsservers name="%s" source=static address=198.18.0.1 validate=no`, devName)
 	runHiddenCmd("cmd", "/C", setDNSCmd)
+	addDNSCmd := fmt.Sprintf(`netsh interface ip add dnsservers name="%s" address=1.1.1.1 index=2 validate=no`, devName)
+	runHiddenCmd("cmd", "/C", addDNSCmd)
 
 	// 5. Add persistent direct route to VPS server via physical gateway
 	if vpsHost != "" && net.ParseIP(vpsHost) != nil {
@@ -80,6 +88,9 @@ func (m *Manager) Start(vpsAddr string) error {
 
 	// 7. Start packet processor netstack
 	ns := NewNetStack(dev, m.client, m.router, m.fakeDNS)
+	if physIP != nil {
+		ns.SetPhysicalIP(physIP)
+	}
 	ns.Start()
 	m.netstack = ns
 
@@ -115,6 +126,10 @@ func (m *Manager) Stop() error {
 	// 3. Remove routes
 	runHiddenCmd("cmd", "/C", `route delete 0.0.0.0 mask 128.0.0.0 >nul 2>&1`)
 	runHiddenCmd("cmd", "/C", `route delete 128.0.0.0 mask 128.0.0.0 >nul 2>&1`)
+	if m.vpsHost != "" && net.ParseIP(m.vpsHost) != nil {
+		runHiddenCmd("cmd", "/C", fmt.Sprintf(`route delete %s mask 255.255.255.255 >nul 2>&1`, m.vpsHost))
+		m.vpsHost = ""
+	}
 
 	// 4. Close and release Wintun adapter
 	if m.device != nil {
@@ -126,10 +141,10 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
-func getDefaultGateway() string {
+func getGatewayAndInterface() (string, net.IP) {
 	out, err := exec.Command("cmd", "/C", `route print 0.0.0.0`).Output()
 	if err != nil {
-		return ""
+		return "192.168.1.1", nil
 	}
 	lines := strings.Split(string(out), "\n")
 	for _, line := range lines {
@@ -137,11 +152,15 @@ func getDefaultGateway() string {
 		if len(fields) >= 5 && fields[0] == "0.0.0.0" && fields[1] == "0.0.0.0" {
 			gw := fields[2]
 			if !strings.HasPrefix(gw, "10.255.") && !strings.HasPrefix(gw, "10.8.") {
-				return gw
+				var physIP net.IP
+				if len(fields) > 3 {
+					physIP = net.ParseIP(fields[3])
+				}
+				return gw, physIP
 			}
 		}
 	}
-	return ""
+	return "192.168.1.1", nil
 }
 
 func runHiddenCmd(name string, args ...string) {

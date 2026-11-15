@@ -39,17 +39,18 @@ type tcpConnKey struct {
 }
 
 type activeTCPConn struct {
-	key        tcpConnKey
-	targetAddr string
-	remoteConn io.ReadWriteCloser
-	clientSeq  uint32
-	serverSeq  uint32
-	lastActive atomic.Int64
-	closed     atomic.Bool
-	writeMu    sync.Mutex
-	inCh       chan []byte
-	stopWorker chan struct{}
-	closeOnce  sync.Once
+	key            tcpConnKey
+	targetAddr     string
+	remoteConn     io.ReadWriteCloser
+	clientSeq      uint32
+	serverSeq      uint32
+	lastActive     atomic.Int64
+	closed         atomic.Bool
+	writeMu        sync.Mutex
+	inCh           chan []byte
+	stopWorker     chan struct{}
+	closeOnce      sync.Once
+	isTunnelStream bool
 }
 
 type udpConnKey struct {
@@ -79,6 +80,7 @@ type NetStack struct {
 	fakeDNS     dns.FakeDNS
 	dnsResolver *dns.Resolver
 	socksAddr   string
+	physicalIP  net.IP
 	
 	tcpConns      map[tcpConnKey]*activeTCPConn
 	tcpMu         sync.RWMutex
@@ -109,9 +111,33 @@ func (ns *NetStack) SetSocksAddr(addr string) {
 	ns.socksAddr = addr
 }
 
+// SetPhysicalIP sets the physical gateway network interface IP to prevent routing loops for direct traffic
+func (ns *NetStack) SetPhysicalIP(ip net.IP) {
+	ns.physicalIP = ip
+}
+
+func (ns *NetStack) dialDirectTCP(destAddr string, timeout time.Duration) (net.Conn, error) {
+	d := &net.Dialer{Timeout: timeout}
+	if ns.physicalIP != nil {
+		d.LocalAddr = &net.TCPAddr{IP: ns.physicalIP}
+	}
+	return d.Dial("tcp", destAddr)
+}
+
+func (ns *NetStack) dialDirectUDP(destAddr string, timeout time.Duration) (net.Conn, error) {
+	d := &net.Dialer{Timeout: timeout}
+	if ns.physicalIP != nil {
+		d.LocalAddr = &net.UDPAddr{IP: ns.physicalIP}
+	}
+	return d.Dial("udp", destAddr)
+}
+
 func (ns *NetStack) getSocksAddr() string {
 	if ns.socksAddr != "" {
 		return ns.socksAddr
+	}
+	if ns.client != nil {
+		return ns.client.GetSocksAddr()
 	}
 	return "127.0.0.1:10808"
 }
@@ -124,11 +150,16 @@ func NewNetStack(dev io.ReadWriter, c *client.Client, r routing.Engine, f dns.Fa
 	if f == nil {
 		f, _ = dns.NewFakeDNS("198.18.0.0/15")
 	}
+	socksAddr := "127.0.0.1:10808"
+	if c != nil {
+		socksAddr = c.GetSocksAddr()
+	}
 	return &NetStack{
 		device:        dev,
 		client:        c,
 		router:        r,
 		fakeDNS:       f,
+		socksAddr:     socksAddr,
 		tcpConns:      make(map[tcpConnKey]*activeTCPConn),
 		tcpConnecting: make(map[tcpConnKey]bool),
 		udpConns:      make(map[udpConnKey]*activeUDPConn),
@@ -386,7 +417,7 @@ func (ns *NetStack) handleNewUDP(key udpConnKey, srcIP, dstIP net.IP, srcPort, d
 	ns.udpMu.RUnlock()
 
 	if action == routing.ActionDirect {
-		dConn, err := net.DialTimeout("udp", destAddr, 3*time.Second)
+		dConn, err := ns.dialDirectUDP(destAddr, 3*time.Second)
 		if err != nil {
 			return
 		}
@@ -686,21 +717,32 @@ func (ns *NetStack) handleTCPSYN(key tcpConnKey, srcIP, dstIP net.IP, srcPort, d
 	// Connect outbound (either direct or via ShadowStar proxy)
 	var remoteConn io.ReadWriteCloser
 	var dialErr error
+	var isTunnelStream bool
 
 	if action == routing.ActionDirect {
-		remoteConn, dialErr = net.DialTimeout("tcp", destAddr, 5*time.Second)
+		remoteConn, dialErr = ns.dialDirectTCP(destAddr, 5*time.Second)
 	} else {
-		// Connect via standard SOCKS5 handshake to local SOCKS5 proxy
-		c, err := net.DialTimeout("tcp", ns.getSocksAddr(), 4*time.Second)
-		if err == nil {
-			if sErr := socks5Handshake(c, destAddr); sErr == nil {
-				remoteConn = c
-			} else {
-				c.Close()
-				dialErr = sErr
+		// Prefer direct client multiplexed tunnel stream (zero local loopback hop)
+		if ns.client != nil && ns.client.IsRunning() {
+			remoteConn, dialErr = ns.client.DialTunnel(destAddr)
+			if dialErr == nil {
+				isTunnelStream = true
 			}
-		} else {
-			dialErr = err
+		}
+		// Fall back to local SOCKS5 proxy if client tunnel direct dial was not available
+		if remoteConn == nil {
+			c, err := net.DialTimeout("tcp", ns.getSocksAddr(), 4*time.Second)
+			if err == nil {
+				if sErr := socks5Handshake(c, destAddr); sErr == nil {
+					remoteConn = c
+					dialErr = nil
+				} else {
+					c.Close()
+					dialErr = sErr
+				}
+			} else {
+				dialErr = err
+			}
 		}
 	}
 
@@ -712,13 +754,14 @@ func (ns *NetStack) handleTCPSYN(key tcpConnKey, srcIP, dstIP net.IP, srcPort, d
 
 	initialServerSeq := uint32(time.Now().UnixNano()&0x7FFFFFFF) + 10000
 	connObj := &activeTCPConn{
-		key:        key,
-		targetAddr: destAddr,
-		remoteConn: remoteConn,
-		clientSeq:  seq + 1,
-		serverSeq:  initialServerSeq + 1,
-		inCh:       make(chan []byte, 256),
-		stopWorker: make(chan struct{}),
+		key:            key,
+		targetAddr:     destAddr,
+		remoteConn:     remoteConn,
+		clientSeq:      seq + 1,
+		serverSeq:      initialServerSeq + 1,
+		inCh:           make(chan []byte, 256),
+		stopWorker:     make(chan struct{}),
+		isTunnelStream: isTunnelStream,
 	}
 	connObj.lastActive.Store(time.Now().Unix())
 
@@ -781,7 +824,10 @@ func (ns *NetStack) handleTCPData(connObj *activeTCPConn, srcIP, dstIP net.IP, s
 				offset = connObj.clientSeq - seq
 			}
 			if offset < uint32(len(tcpData)) {
-				_, _ = connObj.remoteConn.Write(tcpData[offset:])
+				wn, _ := connObj.remoteConn.Write(tcpData[offset:])
+				if wn > 0 && connObj.isTunnelStream && ns.client != nil {
+					ns.client.AddBytesUp(uint64(wn))
+				}
 			}
 			connObj.clientSeq = endSeq
 		}
@@ -819,6 +865,9 @@ func (ns *NetStack) forwardRemoteToTUN(connObj *activeTCPConn, srcIP, dstIP net.
 	for ns.running.Load() && !connObj.closed.Load() {
 		n, err := connObj.remoteConn.Read(buf)
 		if n > 0 {
+			if connObj.isTunnelStream && ns.client != nil {
+				ns.client.AddBytesDown(uint64(n))
+			}
 			connObj.writeMu.Lock()
 			// MSS chunking: Android TUN device MTU is 1500 (IPv4 hdr 20 + TCP hdr 20 = 40 bytes overhead).
 			// If payload > 1360 bytes, kernel/TUN driver drops oversized packets.

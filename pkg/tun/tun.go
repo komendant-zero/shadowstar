@@ -24,6 +24,7 @@ type Manager struct {
 	device     Device
 	netstack   *NetStack
 	killSwitch *WindowsKillSwitch
+	vpsHost    string
 	running    bool
 	mu         sync.Mutex
 }

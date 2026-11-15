@@ -549,6 +549,24 @@ body {
   color: var(--text-muted);
 }
 
+.transport-dropdown {
+  background: rgba(22, 33, 56, 0.9);
+  border: 1px solid rgba(0, 243, 255, 0.3);
+  color: var(--text-primary, #ffffff);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.transport-dropdown:focus {
+  border-color: #00f3ff;
+  box-shadow: 0 0 8px rgba(0, 243, 255, 0.3);
+}
+
 /* Toggle Switch */
 .toggle-switch {
   position: relative;

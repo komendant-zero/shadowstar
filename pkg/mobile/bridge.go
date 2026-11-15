@@ -172,6 +172,7 @@ type MobileStats struct {
 	BytesUp       uint64 `json:"bytes_up"`
 	ActiveStreams int64  `json:"active_streams"`
 	UptimeSec     int64  `json:"uptime_sec"`
+	Transport     string `json:"transport,omitempty"`
 }
 
 // GetStatsJSON returns real-time connection telemetry serialized as JSON
@@ -196,10 +197,40 @@ func GetStatsJSON() string {
 		BytesUp:       st.BytesUp,
 		ActiveStreams: st.ActiveConns,
 		UptimeSec:     uptime,
+		Transport:     b.client.GetTransport(),
 	}
 
 	out, _ := json.Marshal(mStats)
 	return string(out)
+}
+
+// SetTransport changes the transport mode of the active connection (tcp, udp, auto)
+func (b *MobileBridge) SetTransport(trans string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.client != nil {
+		b.client.SetTransport(trans)
+	}
+}
+
+// GetTransport returns the active transport mode
+func (b *MobileBridge) GetTransport() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.client != nil {
+		return b.client.GetTransport()
+	}
+	return "tcp"
+}
+
+// SetTransport exported for JNI / Java bridge
+func SetTransport(trans string) {
+	GetBridge().SetTransport(trans)
+}
+
+// GetTransport exported for JNI / Java bridge
+func GetTransport() string {
+	return GetBridge().GetTransport()
 }
 
 // PingServer tests latency to a node in milliseconds

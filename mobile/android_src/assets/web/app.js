@@ -162,6 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadStoredServers();
   applyLanguage();
   initGameMode();
+  loadTransport();
   updateUI();
   startTelemetryPolling();
   checkUpdateAsync();
@@ -223,6 +224,37 @@ function toggleGameMode(enabled) {
 
 const initGameBypass = initGameMode;
 const toggleGameBypass = toggleGameMode;
+
+function loadTransport() {
+  const sel = document.getElementById('transport-select');
+  if (!sel) return;
+
+  fetch(`${API_BASE}/transport`)
+    .then(r => r.json())
+    .then(res => {
+      if (res && res.data && res.data.transport) {
+        sel.value = res.data.transport;
+      }
+    })
+    .catch(() => {});
+}
+
+function switchTransport(val) {
+  val = (val || 'tcp').toLowerCase();
+  fetch(`${API_BASE}/transport`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ transport: val })
+  })
+    .then(r => r.json())
+    .then(() => {
+      const label = val === 'udp' ? 'UDP (DTLS Camouflage)' : (val === 'auto' ? 'Auto-Switch (Smart)' : 'TCP (TLS 1.3)');
+      showToast(`Транспорт: ${label}`);
+    })
+    .catch(err => {
+      showToast('Ошибка смены транспорта: ' + err.message, 'error');
+    });
+}
 
 const DEFAULT_VPS_SERVER = {
   id: 'node-main-vps',

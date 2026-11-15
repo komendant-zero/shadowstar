@@ -35,6 +35,7 @@ type ServerProfile struct {
 	GroupID       string   `json:"group_id,omitempty"` // category / subscription group ID
 	SNIPool       []string `json:"sni_pool,omitempty"`
 	Fingerprint   string   `json:"fingerprint,omitempty"`
+	Transport     string   `json:"transport,omitempty"` // "tcp" (default), "udp", "auto"
 }
 
 // SubscriptionGroup represents a category of servers or an external subscription
@@ -465,6 +466,66 @@ func (c *Client) UpdateProfile(p ServerProfile) {
 	c.Log(fmt.Sprintf("[Client] Switched active server to: %s (%s)", p.Name, p.ServerAddr))
 }
 
+// SetTransport changes the active server's transport mode (tcp, udp, auto) and reconnects
+func (c *Client) SetTransport(trans string) {
+	trans = strings.ToLower(strings.TrimSpace(trans))
+	if trans != "udp" && trans != "auto" {
+		trans = "tcp"
+	}
+	c.mu.Lock()
+	c.profile.Transport = trans
+	c.mu.Unlock()
+
+	c.muSession.Lock()
+	if c.session != nil {
+		c.session.Close()
+		c.session = nil
+	}
+	c.muSession.Unlock()
+	c.Log(fmt.Sprintf("[Client] Transport mode set to %s. Reconnecting tunnel...", strings.ToUpper(trans)))
+}
+
+// GetTransport returns the active server's transport mode
+func (c *Client) GetTransport() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.profile.Transport == "" {
+		return "tcp"
+	}
+	return c.profile.Transport
+}
+
+// dialTransport connects to the remote server using the configured transport (TCP, UDP, or Auto)
+func (c *Client) dialTransport(addr string) (net.Conn, string, error) {
+	trans := strings.ToLower(strings.TrimSpace(c.profile.Transport))
+	if trans == "" {
+		trans = "tcp"
+	}
+
+	switch trans {
+	case "udp":
+		conn, err := protocol.DialUDP(addr)
+		return conn, "UDP", err
+	case "auto":
+		// Auto mode: attempt fast TCP first (2.5s timeout)
+		conn, err := net.DialTimeout("tcp", addr, 2500*time.Millisecond)
+		if err == nil {
+			return conn, "TCP (Auto)", nil
+		}
+		c.Log(fmt.Sprintf("[Transport] TCP attempt failed (%v), automatically switching to UDP...", err))
+		conn, uErr := protocol.DialUDP(addr)
+		if uErr == nil {
+			return conn, "UDP (Auto-Fallback)", nil
+		}
+		return nil, "Auto", fmt.Errorf("both TCP (%v) and UDP (%v) failed", err, uErr)
+	case "tcp":
+		fallthrough
+	default:
+		conn, err := net.DialTimeout("tcp", addr, 8*time.Second)
+		return conn, "TCP", err
+	}
+}
+
 func (c *Client) getSession() (*protocol.MuxSession, error) {
 	c.muSession.Lock()
 	defer c.muSession.Unlock()
@@ -497,14 +558,14 @@ func (c *Client) getSession() (*protocol.MuxSession, error) {
 
 	for att := 0; att < attempts; att++ {
 		selectedSNI := sniMgr.SelectSNI()
-		c.Log(fmt.Sprintf("[Handshake] Initiating TLS 1.3 Camouflage Handshake -> %s (SNI: %s, Attempt %d/%d)",
-			c.profile.ServerAddr, selectedSNI, att+1, attempts))
+		conn, usedTrans, err := c.dialTransport(c.profile.ServerAddr)
+		c.Log(fmt.Sprintf("[Handshake] Initiating Camouflage Handshake (%s) -> %s (SNI: %s, Attempt %d/%d)",
+			usedTrans, c.profile.ServerAddr, selectedSNI, att+1, attempts))
 		start := time.Now()
 
-		conn, err := net.DialTimeout("tcp", c.profile.ServerAddr, 8*time.Second)
 		if err != nil {
 			sniMgr.ReportFailure(selectedSNI, err)
-			lastErr = fmt.Errorf("failed to connect to server: %w", err)
+			lastErr = fmt.Errorf("failed to connect via %s: %w", usedTrans, err)
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
@@ -531,7 +592,7 @@ func (c *Client) getSession() (*protocol.MuxSession, error) {
 				}
 				if (idx > 0 || kIdx > 0) && conn != nil {
 					conn.Close()
-					conn, err = net.DialTimeout("tcp", c.profile.ServerAddr, 8*time.Second)
+					conn, usedTrans, err = c.dialTransport(c.profile.ServerAddr)
 					if err != nil {
 						lastHandshakeErr = fmt.Errorf("reconnect failed: %w", err)
 						break
@@ -593,7 +654,7 @@ func (c *Client) getSession() (*protocol.MuxSession, error) {
 		sniMgr.ReportSuccess(selectedSNI)
 		latencyMs := int(time.Since(start).Milliseconds())
 		c.latency.Store(int64(latencyMs))
-		c.Log(fmt.Sprintf("[Handshake-Success] Secure tunnel established via SNI %s! Latency: %d ms", selectedSNI, latencyMs))
+		c.Log(fmt.Sprintf("[Handshake-Success] Secure tunnel established via %s (SNI: %s)! Latency: %d ms", usedTrans, selectedSNI, latencyMs))
 
 		return sess, nil
 	}

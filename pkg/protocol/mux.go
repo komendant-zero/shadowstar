@@ -114,8 +114,8 @@ func (s *MuxStream) Close() error {
 		s.closed.Store(true)
 		close(s.closeChan)
 		_ = s.session.frameConn.WriteFrame(s.id, FrameClose, nil)
-		s.session.removeStream(s.id)
 	})
+	s.session.removeStream(s.id)
 	return nil
 }
 

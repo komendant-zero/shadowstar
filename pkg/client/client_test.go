@@ -299,3 +299,111 @@ func TestEndToEndProxyFlow(t *testing.T) {
 		t.Errorf("Telemetry counters were not updated: Up=%d, Down=%d", stats.BytesUp, stats.BytesDown)
 	}
 }
+
+func TestEndToEndProxyFlow_UDPTransport(t *testing.T) {
+	// 1. Start a local HTTP echo/target server
+	targetListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to bind target listener: %v", err)
+	}
+	defer targetListener.Close()
+
+	targetAddr := targetListener.Addr().String()
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/udp-hello", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("Hello from UDP Transport ShadowStar!"))
+		})
+		_ = http.Serve(targetListener, mux)
+	}()
+
+	// 2. Start ShadowStar Server on an ephemeral port
+	srvListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to bind server listener: %v", err)
+	}
+	serverAddr := srvListener.Addr().String()
+	srvListener.Close() // freed for server
+
+	masterKey := "TestMasterKeyForIntegrationTesting2026!"
+	srvCfg := &server.Config{
+		ListenAddr:     serverAddr,
+		MasterKey:      masterKey,
+		FallbackTarget: "www.microsoft.com:443",
+		SNI:            "www.microsoft.com",
+		Verbose:        false,
+	}
+	srv, err := server.NewServer(srvCfg)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	defer srv.Close()
+
+	go func() {
+		_ = srv.Start()
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	// 3. Find free ports for client listeners
+	l1, _ := net.Listen("tcp", "127.0.0.1:0")
+	socksAddr := l1.Addr().String()
+	l1.Close()
+
+	l2, _ := net.Listen("tcp", "127.0.0.1:0")
+	httpAddr := l2.Addr().String()
+	l2.Close()
+
+	profile := ServerProfile{
+		ID:            "test-udp-node",
+		Name:          "Test UDP Node",
+		ServerAddr:    serverAddr,
+		MasterKey:     masterKey,
+		SNI:           "www.microsoft.com",
+		Transport:     "udp", // Explicitly test UDP transport!
+		EnableChunker: false,
+		PaddingLen:    32,
+	}
+
+	cli, err := NewClient(profile, socksAddr, httpAddr)
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	if err := cli.Start(); err != nil {
+		t.Fatalf("Failed to start client: %v", err)
+	}
+	defer cli.Stop()
+
+	time.Sleep(200 * time.Millisecond)
+
+	// 4. Test HTTP Proxy through Client over UDP transport
+	proxyURL, _ := url.Parse("http://" + httpAddr)
+	transport := &http.Transport{
+		Proxy: http.ProxyURL(proxyURL),
+	}
+	httpClient := &http.Client{
+		Transport: transport,
+		Timeout:   5 * time.Second,
+	}
+
+	reqURL := fmt.Sprintf("http://%s/udp-hello", targetAddr)
+	resp, err := httpClient.Get(reqURL)
+	if err != nil {
+		if strings.Contains(err.Error(), "forbidden by its access permissions") {
+			t.Skipf("Skipping loopback socket connection in sandboxed container: %v", err)
+			return
+		}
+		t.Fatalf("Failed to execute request via ShadowStar UDP proxy: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("Failed to read response body: %v", err)
+	}
+
+	expected := "Hello from UDP Transport ShadowStar!"
+	if string(body) != expected {
+		t.Fatalf("Unexpected response body: got %q, expected %q", string(body), expected)
+	}
+}

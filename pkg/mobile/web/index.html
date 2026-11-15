@@ -127,6 +127,24 @@
         </label>
       </section>
 
+      <!-- Protocol Transport Switcher (TCP / UDP / Auto) -->
+      <section class="game-mode-card" id="transport-card">
+        <div class="game-mode-left">
+          <span class="game-mode-icon">⚡</span>
+          <div class="game-mode-info">
+            <div class="game-mode-title" data-i18n="transportTitle">Транспорт протокола</div>
+            <div class="game-mode-sub" data-i18n="transportSub">TCP (TLS 1.3), UDP (DTLS обход) или Auto-переключение</div>
+          </div>
+        </div>
+        <div class="transport-selector">
+          <select id="transport-select" class="transport-dropdown" onchange="switchTransport(this.value)">
+            <option value="tcp">TCP (TLS 1.3)</option>
+            <option value="udp">UDP (DTLS Camo)</option>
+            <option value="auto">Auto (Smart)</option>
+          </select>
+        </div>
+      </section>
+
       <!-- Subtle Stealth Camouflage Status -->
       <section class="stealth-footer">
         <div class="stealth-shield-icon">🛡️</div>

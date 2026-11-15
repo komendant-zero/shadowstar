@@ -141,6 +141,7 @@ func main() {
 	http.HandleFunc("/api/apply-update", handleApplyUpdate)
 	http.HandleFunc("/api/servers", handleServers)
 	http.HandleFunc("/api/game-mode", handleGameMode)
+	http.HandleFunc("/api/transport", handleTransport)
 
 	// Serve mobile web interface: check disk paths first (dev mode), fallback to embedded WebFS
 	var webHandler http.Handler
@@ -548,6 +549,34 @@ func handleGameMode(w http.ResponseWriter, r *http.Request) {
 		b.SetGameMode(req.Enabled)
 		jsonResponse(w, r, true, "Game mode updated", map[string]any{
 			"game_mode": req.Enabled,
+		})
+		return
+	}
+	jsonResponse(w, r, false, "Method not allowed", nil)
+}
+
+func handleTransport(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		return
+	}
+	b := mobile.GetBridge()
+	if r.Method == http.MethodGet {
+		jsonResponse(w, r, true, "", map[string]any{
+			"transport": b.GetTransport(),
+		})
+		return
+	}
+	if r.Method == http.MethodPost {
+		var req struct {
+			Transport string `json:"transport"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonResponse(w, r, false, "Invalid payload", nil)
+			return
+		}
+		b.SetTransport(req.Transport)
+		jsonResponse(w, r, true, "Transport updated", map[string]any{
+			"transport": b.GetTransport(),
 		})
 		return
 	}

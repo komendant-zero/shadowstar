@@ -43,6 +43,7 @@ func main() {
 	useTray := flag.Bool("tray", false, "Enable Windows system tray icon with context menu")
 	useTun := flag.Bool("tun", false, "Activate native L3 TUN mode on startup")
 	useKillSwitch := flag.Bool("killswitch", false, "Activate emergency leak prevention Kill Switch on startup")
+	transportFlag := flag.String("transport", "", "Protocol transport: tcp, udp, or auto")
 	flag.Parse()
 
 	if *showVersion {
@@ -261,6 +262,9 @@ func main() {
 	if activeProfile.ID == "" && len(cfg.Servers) > 0 {
 		activeProfile = cfg.Servers[0]
 		cfg.ActiveID = activeProfile.ID
+	}
+	if *transportFlag != "" {
+		activeProfile.Transport = strings.ToLower(*transportFlag)
 	}
 
 	c, err := client.NewClient(activeProfile, cfg.SocksAddr, cfg.HttpAddr)

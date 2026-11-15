@@ -24,12 +24,13 @@ type Config struct {
 
 // Server is the ShadowStar proxy server
 type Server struct {
-	config     *Config
-	masterKey  []byte
-	legacyKey  []byte
-	listener   net.Listener
-	mu         sync.Mutex
-	closed     bool
+	config      *Config
+	masterKey   []byte
+	legacyKey   []byte
+	listener    net.Listener
+	udpListener *protocol.UDPListener
+	mu          sync.Mutex
+	closed      bool
 	statsActive int64
 }
 
@@ -51,14 +52,24 @@ func NewServer(cfg *Config) (*Server, error) {
 	}, nil
 }
 
-// Start runs the server accept loop
+// Start runs the server accept loop (both TCP and UDP transports simultaneously)
 func (s *Server) Start() error {
 	l, err := net.Listen("tcp", s.config.ListenAddr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", s.config.ListenAddr, err)
+		return fmt.Errorf("failed to listen tcp on %s: %w", s.config.ListenAddr, err)
 	}
 	s.listener = l
-	log.Printf("[ShadowStar-Server] Listening on %s | Fallback: %s", s.config.ListenAddr, s.config.FallbackTarget)
+
+	udpL, err := protocol.ListenUDP(s.config.ListenAddr)
+	if err != nil {
+		log.Printf("[ShadowStar-Server] Notice: UDP transport unavailable on %s: %v", s.config.ListenAddr, err)
+	} else {
+		s.udpListener = udpL
+		log.Printf("[ShadowStar-Server] UDP Transport active on %s (DTLS Camouflage)", s.config.ListenAddr)
+		go s.acceptUDPLoop()
+	}
+
+	log.Printf("[ShadowStar-Server] TCP Transport active on %s | Fallback: %s", s.config.ListenAddr, s.config.FallbackTarget)
 
 	for {
 		conn, err := l.Accept()
@@ -69,7 +80,25 @@ func (s *Server) Start() error {
 			if closed {
 				return nil
 			}
-			log.Printf("[ShadowStar-Server] Accept error: %v", err)
+			log.Printf("[ShadowStar-Server] TCP Accept error: %v", err)
+			continue
+		}
+
+		go s.handleConnection(conn)
+	}
+}
+
+func (s *Server) acceptUDPLoop() {
+	for {
+		conn, err := s.udpListener.Accept()
+		if err != nil {
+			s.mu.Lock()
+			closed := s.closed
+			s.mu.Unlock()
+			if closed {
+				return
+			}
+			log.Printf("[ShadowStar-Server] UDP Accept error: %v", err)
 			continue
 		}
 
@@ -82,6 +111,9 @@ func (s *Server) Close() error {
 	s.mu.Lock()
 	s.closed = true
 	s.mu.Unlock()
+	if s.udpListener != nil {
+		_ = s.udpListener.Close()
+	}
 	if s.listener != nil {
 		return s.listener.Close()
 	}

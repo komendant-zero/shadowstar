@@ -99,6 +99,7 @@ const i18n = {
 
 const state = {
   currentLang: localStorage.getItem('shadowstar_lang') || 'ru',
+  currentTransport: (localStorage.getItem('shadowstar_transport') || 'tcp').toLowerCase(),
   connected: false,
   connecting: false,
   connectStartTime: null,
@@ -229,7 +230,6 @@ const toggleGameBypass = toggleGameMode;
 
 function selectTransport(val) {
   val = (val || 'tcp').toLowerCase();
-  updateTransportUI(val);
   switchTransport(val);
 }
 
@@ -243,11 +243,28 @@ function updateTransportUI(val) {
 }
 
 function loadTransport() {
+  let saved = null;
+  try {
+    if (window.AndroidBridge && typeof window.AndroidBridge.getTransport === 'function') {
+      saved = window.AndroidBridge.getTransport();
+    }
+  } catch (_) {}
+  if (!saved) {
+    try {
+      saved = localStorage.getItem('shadowstar_transport');
+    } catch (_) {}
+  }
+  if (saved) {
+    state.currentTransport = saved.toLowerCase();
+    updateTransportUI(state.currentTransport);
+  }
+
   fetch(`${API_BASE}/transport`)
     .then(r => r.json())
     .then(res => {
       if (res && res.data && res.data.transport) {
-        updateTransportUI(res.data.transport);
+        state.currentTransport = res.data.transport.toLowerCase();
+        updateTransportUI(state.currentTransport);
       }
     })
     .catch(() => {});
@@ -255,20 +272,28 @@ function loadTransport() {
 
 function switchTransport(val) {
   val = (val || 'tcp').toLowerCase();
+  state.currentTransport = val;
+  try {
+    localStorage.setItem('shadowstar_transport', val);
+  } catch (_) {}
+
   updateTransportUI(val);
+
+  if (window.AndroidBridge && typeof window.AndroidBridge.setTransport === 'function') {
+    try {
+      window.AndroidBridge.setTransport(val);
+    } catch (_) {}
+  }
+
+  // Also notify daemon in background without throwing error if daemon is offline
   fetch(`${API_BASE}/transport`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ transport: val })
-  })
-    .then(r => r.json())
-    .then(() => {
-      const label = val === 'udp' ? 'UDP (DTLS Camouflage)' : (val === 'auto' ? 'Auto-Switch (Smart)' : 'TCP (TLS 1.3)');
-      showToast(`Транспорт: ${label}`);
-    })
-    .catch(err => {
-      showToast('Ошибка смены транспорта: ' + err.message, 'error');
-    });
+  }).catch(() => {});
+
+  const label = val === 'udp' ? 'UDP (DTLS Camouflage)' : (val === 'auto' ? 'Auto-Switch (Smart)' : 'TCP (TLS 1.3)');
+  showToast(`Транспорт: ${label}`);
 }
 
 const DEFAULT_VPS_SERVER = {
@@ -551,6 +576,7 @@ function connectVPN() {
   updateUI();
   showToast(active.name);
 
+  const currentTr = state.currentTransport || localStorage.getItem('shadowstar_transport') || 'tcp';
   const payload = {
     profile_json: JSON.stringify({
       id: active.id || 'active',
@@ -558,6 +584,7 @@ function connectVPN() {
       server_addr: active.addr || active.server_addr,
       master_key: active.key || active.master_key,
       sni: active.sni || 'www.microsoft.com',
+      transport: currentTr,
       enable_chunker: true
     })
   };
@@ -573,7 +600,8 @@ function connectVPN() {
           active.name || 'ShadowStar Node',
           active.addr || active.server_addr,
           active.key || active.master_key,
-          active.sni || 'www.microsoft.com'
+          active.sni || 'www.microsoft.com',
+          currentTr
         );
         return;
       } else if (typeof window.AndroidBridge.startVpn === 'function') {

@@ -35,6 +35,7 @@ public class MainActivity extends Activity {
     public String lastProfileAddr = "";
     public String lastProfileKey = "";
     public String lastProfileSni = "www.microsoft.com";
+    public String lastTransport = "tcp";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -177,6 +178,13 @@ public class MainActivity extends Activity {
 
     private void initDefaultProfileFromAsset() {
         try {
+            String savedTr = getSharedPreferences("shadowstar_prefs", MODE_PRIVATE).getString("transport", "tcp");
+            if (savedTr != null && !savedTr.isEmpty()) {
+                lastTransport = savedTr.toLowerCase();
+            }
+        } catch (Throwable ignored) {}
+
+        try {
             // First attempt: check persistent storage (survives app reinstallation)
             String persistentServers = loadPersistentServers();
             if (persistentServers != null && !persistentServers.isEmpty()) {
@@ -252,6 +260,7 @@ public class MainActivity extends Activity {
                     String cleanAddr = (lastProfileAddr != null && !lastProfileAddr.isEmpty()) ? lastProfileAddr : "179.253.74.36:4433";
                     String cleanSni = (lastProfileSni != null && !lastProfileSni.isEmpty()) ? lastProfileSni : "www.microsoft.com";
                     String cleanName = (lastProfileName != null && !lastProfileName.isEmpty()) ? lastProfileName : "VPS-179.253.74.36 (NL Amsterdam)";
+                    String cleanTransport = (lastTransport != null && !lastTransport.isEmpty()) ? lastTransport : "tcp";
 
                     if (!cfgFile.exists()) {
                         String initJson = "{\"socks_addr\":\"127.0.0.1:10808\",\"http_addr\":\"127.0.0.1:10809\","
@@ -259,14 +268,15 @@ public class MainActivity extends Activity {
                                 + "\"server_addr\":\"" + cleanAddr + "\","
                                 + "\"master_key\":\"" + cleanKey + "\","
                                 + "\"sni\":\"" + cleanSni + "\","
+                                + "\"transport\":\"" + cleanTransport + "\","
                                 + "\"enable_chunker\":true}],"
                                 + "\"active_id\":\"active\"}";
                         try (FileOutputStream fos = new FileOutputStream(cfgFile)) {
                             fos.write(initJson.getBytes("UTF-8"));
                         } catch (Throwable ignored) {}
                     }
-                    String initUri = "shadowstar://" + cleanKey + "@" + cleanAddr + "/?sni=" + cleanSni + "&chunker=1&name=Active";
-                    ProcessBuilder pb = new ProcessBuilder(binFile.getAbsolutePath(), "-c", cfgFile.getAbsolutePath(), "-connect", initUri);
+                    String initUri = "shadowstar://" + cleanKey + "@" + cleanAddr + "/?sni=" + cleanSni + "&transport=" + cleanTransport + "&chunker=1&name=Active";
+                    ProcessBuilder pb = new ProcessBuilder(binFile.getAbsolutePath(), "-c", cfgFile.getAbsolutePath(), "-transport", cleanTransport, "-connect", initUri);
                     pb.directory(getFilesDir());
                     pb.redirectErrorStream(true);
                     daemonProcess = pb.start();
@@ -295,6 +305,7 @@ public class MainActivity extends Activity {
                     String cleanKey = (key != null && !key.isEmpty()) ? key : lastProfileKey;
                     String cleanAddr = (addr != null && !addr.isEmpty()) ? addr : lastProfileAddr;
                     String cleanSni = (sni != null && !sni.isEmpty()) ? sni : lastProfileSni;
+                    String cleanTransport = (lastTransport != null && !lastTransport.isEmpty()) ? lastTransport : "tcp";
 
                     File cfgFile = new File(getFilesDir(), "config.json");
                     String cfgJson = "{\"socks_addr\":\"127.0.0.1:10808\",\"http_addr\":\"127.0.0.1:10809\","
@@ -302,16 +313,18 @@ public class MainActivity extends Activity {
                             + "\"server_addr\":\"" + cleanAddr + "\","
                             + "\"master_key\":\"" + cleanKey + "\","
                             + "\"sni\":\"" + cleanSni + "\","
+                            + "\"transport\":\"" + cleanTransport + "\","
                             + "\"enable_chunker\":true}],"
                             + "\"active_id\":\"active\"}";
                     try (FileOutputStream fos = new FileOutputStream(cfgFile)) {
                         fos.write(cfgJson.getBytes("UTF-8"));
                     } catch (Throwable ignored) {}
 
-                    String uri = "shadowstar://" + cleanKey + "@" + cleanAddr + "/?sni=" + cleanSni + "&chunker=1&name=Active";
+                    String uri = "shadowstar://" + cleanKey + "@" + cleanAddr + "/?sni=" + cleanSni + "&transport=" + cleanTransport + "&chunker=1&name=Active";
                     ProcessBuilder pb = new ProcessBuilder(
                             binFile.getAbsolutePath(),
                             "-c", cfgFile.getAbsolutePath(),
+                            "-transport", cleanTransport,
                             "-connect", uri
                     );
                     pb.directory(getFilesDir());
@@ -522,6 +535,16 @@ public class MainActivity extends Activity {
                         String addr = obj.optString("server_addr", obj.optString("addr", ""));
                         String key = obj.optString("master_key", obj.optString("key", ""));
                         String sni = obj.optString("sni", "www.microsoft.com");
+                        String tr = obj.optString("transport", activity.lastTransport);
+                        if (tr != null && !tr.isEmpty()) {
+                            activity.lastTransport = tr.toLowerCase();
+                            try {
+                                activity.getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
+                                        .edit()
+                                        .putString("transport", activity.lastTransport)
+                                        .apply();
+                            } catch (Throwable ignored) {}
+                        }
                         if (isRealServer(addr, key)) {
                             activity.lastProfileName = name;
                             activity.lastProfileAddr = addr;
@@ -547,12 +570,21 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void startVpn() {
-            startVpnWithProfile(activity.lastProfileName, activity.lastProfileAddr, activity.lastProfileKey, activity.lastProfileSni);
+            startVpnWithProfile(activity.lastProfileName, activity.lastProfileAddr, activity.lastProfileKey, activity.lastProfileSni, activity.lastTransport);
         }
 
         @JavascriptInterface
-        public void startVpnWithProfile(String name, String addr, String key, String sni) {
+        public void startVpnWithProfile(String name, String addr, String key, String sni, String transport) {
             activity.runOnUiThread(() -> {
+                if (transport != null && !transport.isEmpty()) {
+                    activity.lastTransport = transport.toLowerCase();
+                    try {
+                        activity.getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
+                                .edit()
+                                .putString("transport", activity.lastTransport)
+                                .apply();
+                    } catch (Throwable ignored) {}
+                }
                 if (name != null && !name.isEmpty()) activity.lastProfileName = name;
                 if (addr != null && !addr.isEmpty()) activity.lastProfileAddr = addr;
                 if (key != null && !key.isEmpty()) activity.lastProfileKey = key;
@@ -568,8 +600,52 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void startVpnWithProfile(String name, String addr, String key, String sni) {
+            startVpnWithProfile(name, addr, key, sni, activity.lastTransport);
+        }
+
+        @JavascriptInterface
         public void stopVpn() {
             activity.runOnUiThread(activity::stopVpnService);
+        }
+
+        @JavascriptInterface
+        public void setTransport(String transport) {
+            String val = (transport != null && !transport.isEmpty()) ? transport.toLowerCase() : "tcp";
+            activity.lastTransport = val;
+            try {
+                activity.getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
+                        .edit()
+                        .putString("transport", val)
+                        .apply();
+            } catch (Throwable ignored) {}
+
+            // Also notify Go daemon asynchronously
+            new Thread(() -> {
+                try {
+                    java.net.URL url = new java.net.URL("http://127.0.0.1:10810/api/transport");
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("POST");
+                    conn.setRequestProperty("Content-Type", "application/json");
+                    conn.setDoOutput(true);
+                    conn.setConnectTimeout(1000);
+                    conn.setReadTimeout(1000);
+                    try (java.io.OutputStream os = conn.getOutputStream()) {
+                        os.write(("{\"transport\":\"" + val + "\"}").getBytes("UTF-8"));
+                    }
+                    conn.getResponseCode();
+                } catch (Throwable ignored) {}
+            }).start();
+        }
+
+        @JavascriptInterface
+        public String getTransport() {
+            try {
+                return activity.getSharedPreferences("shadowstar_prefs", MODE_PRIVATE)
+                        .getString("transport", "tcp");
+            } catch (Throwable ignored) {
+                return "tcp";
+            }
         }
 
         @JavascriptInterface

@@ -101,6 +101,10 @@ func DecodeURIToProfile(rawURI string) (*client.ServerProfile, error) {
 		if sni == "" {
 			sni = "www.microsoft.com"
 		}
+		transport := strings.ToLower(strings.TrimSpace(u.Query().Get("transport")))
+		if transport == "" {
+			transport = "tcp"
+		}
 		chunkerVal := u.Query().Get("chunker")
 		chunker := true
 		if chunkerVal == "0" || chunkerVal == "false" {
@@ -118,6 +122,7 @@ func DecodeURIToProfile(rawURI string) (*client.ServerProfile, error) {
 				ServerAddr:    serverAddr,
 				MasterKey:     masterKey,
 				SNI:           sni,
+				Transport:     transport,
 				EnableChunker: chunker,
 				PaddingLen:    padding,
 			}, nil

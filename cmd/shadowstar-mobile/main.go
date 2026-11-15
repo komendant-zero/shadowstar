@@ -25,9 +25,10 @@ var (
 	apiPort     = flag.Int("api", 10810, "Local HTTP REST API port for Mobile UI control")
 	subURL      = flag.String("sub", "", "Subscription URL to load nodes on startup")
 	connectNode = flag.String("connect", "", "Direct shadowstar:// link, host:port:key or key to connect immediately")
-	socksAddr   = flag.String("socks", "127.0.0.1:10808", "Local SOCKS5 proxy listen address")
-	httpAddr    = flag.String("http", "127.0.0.1:10809", "Local HTTP proxy listen address")
-	cfgPath     = flag.String("c", "shadowstar-mobile.json", "Mobile configuration storage file")
+	socksAddr     = flag.String("socks", "127.0.0.1:10808", "Local SOCKS5 proxy listen address")
+	httpAddr      = flag.String("http", "127.0.0.1:10809", "Local HTTP proxy listen address")
+	cfgPath       = flag.String("c", "shadowstar-mobile.json", "Mobile configuration storage file")
+	transportFlag = flag.String("transport", "", "Network transport override: tcp, udp, or auto")
 
 	mobileCfgMu   sync.Mutex
 	mobileCfg     *client.Config
@@ -43,6 +44,10 @@ type APIResponse struct {
 func main() {
 	updater.CleanupOldFiles()
 	flag.Parse()
+
+	if *transportFlag != "" {
+		mobile.GetBridge().SetTransport(*transportFlag)
+	}
 
 	log.Printf("[ShadowStar-Mobile] Core daemon starting on port %d...", *apiPort)
 	log.Printf("[ShadowStar-Mobile] SOCKS5: %s | HTTP: %s", *socksAddr, *httpAddr)
@@ -96,6 +101,9 @@ func main() {
 				prof.ServerAddr = "179.253.74.36:4433"
 				prof.Name = "Direct Key Node"
 			}
+			if prof.Transport != "" {
+				mobile.GetBridge().SetTransport(prof.Transport)
+			}
 			rawJSON, _ := json.Marshal(prof)
 			_, startErr := mobile.StartVPN(string(rawJSON))
 			if startErr != nil {
@@ -119,6 +127,9 @@ func main() {
 			activeProf = &mobileCfg.Servers[0]
 		}
 		if activeProf.ServerAddr != "" && activeProf.MasterKey != "" {
+			if activeProf.Transport != "" {
+				mobile.GetBridge().SetTransport(activeProf.Transport)
+			}
 			rawJSON, _ := json.Marshal(activeProf)
 			_, startErr := mobile.StartVPN(string(rawJSON))
 			if startErr != nil {
@@ -193,16 +204,33 @@ func main() {
 	_ = server.Close()
 }
 
+func handleCORS(w http.ResponseWriter, r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	} else {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	}
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
+	w.Header().Set("Access-Control-Max-Age", "86400")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return true
+	}
+	return false
+}
+
 func jsonResponse(w http.ResponseWriter, r *http.Request, success bool, msg string, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	origin := r.Header.Get("Origin")
-	if origin == "" || strings.HasPrefix(origin, "http://127.0.0.1") || strings.HasPrefix(origin, "http://localhost") || strings.HasPrefix(origin, "https://localhost") {
-		if origin != "" {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-		}
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	if origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	} else {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 	}
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
 	_ = json.NewEncoder(w).Encode(APIResponse{
 		Success: success,
 		Message: msg,
@@ -211,7 +239,7 @@ func jsonResponse(w http.ResponseWriter, r *http.Request, success bool, msg stri
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	var stats mobile.MobileStats
@@ -220,7 +248,7 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleConnect(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -293,7 +321,7 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDisconnect(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	err := mobile.StopVPN()
@@ -305,7 +333,7 @@ func handleDisconnect(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSubscription(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	subURL := r.URL.Query().Get("url")
@@ -340,7 +368,7 @@ func handleSubscription(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleServers(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	mobileCfgMu.Lock()
@@ -386,7 +414,7 @@ func handleServers(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleParseURI(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	uri := r.URL.Query().Get("uri")
@@ -405,7 +433,7 @@ func handleParseURI(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePing(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	addr := r.URL.Query().Get("addr")
@@ -419,7 +447,7 @@ func handlePing(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAutoBest(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	var req struct {
@@ -444,7 +472,7 @@ var (
 )
 
 func handleCheckUpdate(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	rel, err := updater.CheckUpdate("")
@@ -466,7 +494,7 @@ func handleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleApplyUpdate(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	updateMu.Lock()
@@ -528,7 +556,7 @@ func handleApplyUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGameMode(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	b := mobile.GetBridge()
@@ -556,7 +584,7 @@ func handleGameMode(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleTransport(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if handleCORS(w, r) {
 		return
 	}
 	b := mobile.GetBridge()

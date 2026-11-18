@@ -29,6 +29,7 @@ type Server struct {
 	legacyKey   []byte
 	listener    net.Listener
 	udpListener *protocol.UDPListener
+	connLimit   chan struct{}
 	mu          sync.Mutex
 	closed      bool
 	statsActive int64
@@ -49,6 +50,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		config:    cfg,
 		masterKey: primaryKey,
 		legacyKey: legacyKey,
+		connLimit: make(chan struct{}, 4096),
 	}, nil
 }
 
@@ -122,6 +124,18 @@ func (s *Server) Close() error {
 
 func (s *Server) handleConnection(clientConn net.Conn) {
 	defer clientConn.Close()
+
+	if s.connLimit != nil {
+		select {
+		case s.connLimit <- struct{}{}:
+			defer func() { <-s.connLimit }()
+		default:
+			if s.config.Verbose {
+				log.Printf("[ShadowStar-Server] Connection limit reached. Dropping %s", clientConn.RemoteAddr())
+			}
+			return
+		}
+	}
 
 	// Read initial TLS record header (5 bytes)
 	header := make([]byte, 5)
@@ -231,19 +245,60 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	}
 }
 
-func isBlockedTarget(host string) bool {
-	h := strings.TrimSpace(strings.ToLower(host))
-	if h == "" || h == "localhost" || strings.HasSuffix(h, ".localhost") {
+func isBlockedIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
 		return true
 	}
-	ip := net.ParseIP(h)
-	if ip != nil {
-		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+	if ip.IsPrivate() {
+		return true
+	}
+	if len(ip) == net.IPv4len {
+		// 0.0.0.0/8
+		if ip[0] == 0 {
 			return true
 		}
-		// Block 169.254.169.254 (Cloud instance metadata API)
-		if ip.Equal(net.ParseIP("169.254.169.254")) {
+		// 100.64.0.0/10 (Carrier-Grade NAT)
+		if ip[0] == 100 && (ip[1]&0xc0) == 64 {
 			return true
+		}
+		// 169.254.0.0/16 (Link Local / Cloud Metadata)
+		if ip[0] == 169 && ip[1] == 254 {
+			return true
+		}
+		// 100.100.100.200 (Alibaba Cloud metadata)
+		if ip[0] == 100 && ip[1] == 100 && ip[2] == 100 && ip[3] == 200 {
+			return true
+		}
+	}
+	// AWS IMDSv2 IPv6 metadata
+	if ip.String() == "fd00:ec2::254" {
+		return true
+	}
+	return false
+}
+
+func isBlockedTarget(host string) bool {
+	h := strings.TrimSpace(strings.ToLower(host))
+	if h == "" || h == "localhost" || strings.HasSuffix(h, ".localhost") ||
+		strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".internal") ||
+		strings.HasSuffix(h, ".lan") || strings.HasSuffix(h, ".home.arpa") {
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return isBlockedIP(ip)
+	}
+	// Pre-resolve hostname to detect DNS rebinding to private IPs
+	if ips, err := net.LookupIP(h); err == nil {
+		for _, ip := range ips {
+			if isBlockedIP(ip) {
+				return true
+			}
 		}
 	}
 	return false
@@ -279,6 +334,15 @@ func (s *Server) handleMuxStream(stream *protocol.MuxStream) {
 	if err != nil {
 		if s.config.Verbose {
 			log.Printf("[Proxy-Route] Dial failed to %s: %v", destAddr, err)
+		}
+		return
+	}
+
+	// Verify connected remote IP against SSRF
+	if tcpAddr, ok := targetConn.RemoteAddr().(*net.TCPAddr); ok && isBlockedIP(tcpAddr.IP) {
+		targetConn.Close()
+		if s.config.Verbose {
+			log.Printf("[Proxy-Block] Blocked connection to restricted internal IP %s", tcpAddr.IP)
 		}
 		return
 	}
@@ -332,6 +396,13 @@ func (s *Server) handleUDPStream(stream *protocol.MuxStream, target *protocol.Ta
 		return
 	}
 	defer udpConn.Close()
+
+	if udpAddr, ok := udpConn.RemoteAddr().(*net.UDPAddr); ok && isBlockedIP(udpAddr.IP) {
+		if s.config.Verbose {
+			log.Printf("[UDP-Block] Blocked connection to restricted internal IP %s", udpAddr.IP)
+		}
+		return
+	}
 
 	var once sync.Once
 	closeBoth := func() {

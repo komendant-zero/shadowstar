@@ -77,7 +77,7 @@ func (t *TUI) renderHeader(w int) string {
 	sb.WriteString("┌" + strings.Repeat("─", w) + "┐\n")
 
 	// Title + Status Badge + Lang Badge
-	title := BrightCyan(Bold("◈ SHADOWSTAR (SSP)")) + Dim(" • Anti-DPI Stealth Proxy v2.0.6")
+	title := BrightCyan(Bold("◈ SHADOWSTAR (SSP)")) + Dim(" • Anti-DPI Stealth Proxy v2.0.7")
 	
 	statusBadge := ""
 	if t.stats.Connected {
@@ -158,9 +158,23 @@ func (t *TUI) renderDashboard(w int) string {
 		ksStr = BrightYellow("[ON]")
 	}
 
-	l2Left := fmt.Sprintf(" %s Reality (%s) | Chunker: %s",
+	transMode := strings.ToUpper(t.client.GetTransport())
+	if transMode == "" {
+		transMode = "TCP"
+	}
+	transColor := BrightCyan
+	if transMode == "UDP" {
+		transColor = BrightYellow
+	} else if transMode == "AUTO" {
+		transColor = BrightGreen
+	}
+	transBadge := transColor(Bold("[" + transMode + "]"))
+
+	l2Left := fmt.Sprintf(" %s Reality (%s) | %s: %s | Chunker: %s",
 		Magenta("◆ "+i18n.T("Защита:", "Shield:")),
 		BrightCyan(active.SNI),
+		Cyan(i18n.T("Транспорт", "Transport")),
+		transBadge,
 		chunkerStr,
 	)
 	l2Right := fmt.Sprintf("TUN: %s | KS: %s | %s: %s ", tunStr, ksStr, i18n.T("Прокси", "Proxy"), sysProxyStr)
@@ -308,12 +322,14 @@ func (t *TUI) renderServersList(w, h int) string {
 	// space: 1
 	// countryTag: 4 ("[NL]")
 	// space: 1
-	// Total prefix width = 9
+	// transTag: 6 ("[TCP ]")
+	// space: 1
+	// Total prefix width = 16
 	// pingColW: 8 (e.g. "   38 ms")
 	// statusColW: 10 (e.g. " [АКТИВЕН]" or " [ACTIVE] " or 10 spaces)
 	statusColW := 10
 	pingColW := 8
-	fixedCols := 9 + pingColW + statusColW // 27 cols
+	fixedCols := 16 + pingColW + statusColW // 34 cols
 
 	rem := w - fixedCols
 	if rem < 30 {
@@ -352,6 +368,18 @@ func (t *TUI) renderServersList(w, h int) string {
 			countryTag = fmt.Sprintf("[%s]", s.Country)
 		}
 
+		// Transport tag
+		nodeTrans := "TCP"
+		if s.Transport != "" {
+			nodeTrans = strings.ToUpper(s.Transport)
+		}
+		transTag := Cyan("[" + PadRight(nodeTrans, 4) + "]")
+		if nodeTrans == "UDP" {
+			transTag = BrightYellow("[" + PadRight(nodeTrans, 4) + "]")
+		} else if nodeTrans == "AUTO" {
+			transTag = BrightGreen("[" + PadRight(nodeTrans, 4) + "]")
+		}
+
 		// Node name
 		nameStr := PadRight(Truncate(s.Name, nameColW-1), nameColW)
 		if isSelected {
@@ -388,10 +416,11 @@ func (t *TUI) renderServersList(w, h int) string {
 			statusTag = BrightGreen(PadRight(i18n.T(" [АКТИВЕН]", " [ACTIVE]"), statusColW))
 		}
 
-		lineContent := fmt.Sprintf("%s%s %s %s%s%s%s%s",
+		lineContent := fmt.Sprintf("%s%s %s %s %s%s%s%s%s",
 			prefix,
 			statusMark,
 			Cyan(countryTag),
+			transTag,
 			nameStr,
 			addrStr,
 			sniStr,
@@ -544,9 +573,13 @@ func (t *TUI) renderFooter(w int) string {
 	tKey := BrightCyan("[T]")
 	tText := "TUN"
 
+	mKey := BrightCyan("[M]")
+	mText := i18n.T("Транспорт", "Transport")
+
 	var items []string
 	items = append(items, grpKey+" "+grpText)
 	items = append(items, cKey+" "+cText)
+	items = append(items, mKey+" "+mText)
 	items = append(items, tKey+" "+tText)
 	items = append(items, uKey+" "+uText)
 	items = append(items, eKey+" "+eText)

@@ -126,6 +126,56 @@ func TestSecureFrameConn(t *testing.T) {
 	}
 }
 
+func TestSecureFrameConn_TLS13RecordCamouflage(t *testing.T) {
+	var buf bytes.Buffer
+	keyA := RandomBytes(32)
+	ivA := RandomBytes(12)
+	keyB := RandomBytes(32)
+	ivB := RandomBytes(12)
+
+	conn1, err := NewSecureFrameConn(&buf, keyA, ivA, keyB, ivB)
+	if err != nil {
+		t.Fatalf("conn1 create failed: %v", err)
+	}
+
+	testPayload := []byte("Testing TLS 1.3 Application Data camouflage!")
+	if err := conn1.WriteFrame(1, FrameData, testPayload); err != nil {
+		t.Fatalf("WriteFrame failed: %v", err)
+	}
+
+	wireBytes := buf.Bytes()
+	if len(wireBytes) < 5 {
+		t.Fatalf("Wire buffer too short for TLS record header: %d", len(wireBytes))
+	}
+
+	// Verify TLS 1.3 Record Header
+	if wireBytes[0] != TLSRecordApplicationData {
+		t.Errorf("Expected TLS ApplicationData record 0x17, got 0x%02x", wireBytes[0])
+	}
+	if wireBytes[1] != 0x03 || wireBytes[2] != 0x03 {
+		t.Errorf("Expected TLS 1.2 legacy version 0x0303 in record header, got 0x%02x%02x", wireBytes[1], wireBytes[2])
+	}
+
+	recordLen := int(binary.BigEndian.Uint16(wireBytes[3:5]))
+	if len(wireBytes) != 5+recordLen {
+		t.Errorf("TLS record length mismatch: header says %d, got total %d - 5 = %d", recordLen, len(wireBytes), len(wireBytes)-5)
+	}
+
+	// Verify reading it back with conn2
+	conn2, err := NewSecureFrameConn(&buf, keyB, ivB, keyA, ivA)
+	if err != nil {
+		t.Fatalf("conn2 create failed: %v", err)
+	}
+
+	sID, fType, decPayload, err := conn2.ReadFrame()
+	if err != nil {
+		t.Fatalf("ReadFrame failed: %v", err)
+	}
+	if sID != 1 || fType != FrameData || !bytes.Equal(decPayload, testPayload) {
+		t.Fatalf("ReadFrame data mismatch: got stream %d, type %d, payload %s", sID, fType, string(decPayload))
+	}
+}
+
 func TestTargetAddressSerialization(t *testing.T) {
 	// Test TCP domain
 	buf := new(bytes.Buffer)

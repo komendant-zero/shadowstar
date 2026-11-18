@@ -13,11 +13,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
 const (
-	CurrentVersion = "v2.0.6"
+	CurrentVersion = "v2.0.7"
 	DefaultRepo    = "komendant-zero/shadowstar"
 )
 
@@ -124,8 +125,9 @@ func CheckUpdate(repo string) (*ReleaseInfo, error) {
 type ProgressCallback func(percent int, status string)
 
 // DownloadAndApplyUpdate downloads the latest Windows release asset from GitHub,
-// extracts shadowstar.exe, replaces the running binary, and restarts the app.
-func DownloadAndApplyUpdate(directURL string, cb ProgressCallback) error {
+// extracts shadowstar.exe, safely replaces the running binary with process-wait verification,
+// and restarts the application in an independent console window.
+func DownloadAndApplyUpdate(directURL string, cb ProgressCallback, beforeRestart ...func()) error {
 	if cb == nil {
 		cb = func(int, string) {}
 	}
@@ -266,7 +268,6 @@ func DownloadAndApplyUpdate(directURL string, cb ProgressCallback) error {
 	exeDir := filepath.Dir(exePath)
 
 	newExePath := filepath.Join(exeDir, "shadowstar.exe.new")
-	oldExePath := filepath.Join(exeDir, "shadowstar.exe.old")
 
 	_ = os.Remove(newExePath)
 	if err := os.WriteFile(newExePath, exeBytes, 0755); err != nil {
@@ -275,32 +276,149 @@ func DownloadAndApplyUpdate(directURL string, cb ProgressCallback) error {
 
 	cb(98, "Перезапуск ShadowStar...")
 
-	// Attempt Windows open-file rename trick:
-	_ = os.Remove(oldExePath)
-	if err := os.Rename(exePath, oldExePath); err == nil {
-		if err := os.Rename(newExePath, exePath); err == nil {
-			cmd := exec.Command(exePath)
-			cmd.Dir = exeDir
-			_ = cmd.Start()
-			os.Exit(0)
-			return nil
+	// Run clean shutdown callbacks (e.g. restore terminal VT100 mode, disable sysproxy, stop TUN/Client)
+	for _, fn := range beforeRestart {
+		if fn != nil {
+			fn()
 		}
-		_ = os.Rename(oldExePath, exePath)
 	}
 
-	// Fallback via helper batch script
-	batPath := filepath.Join(exeDir, "shadowstar_update.bat")
-	batContent := fmt.Sprintf("@echo off\r\nping 127.0.0.1 -n 2 > nul\r\nmove /y \"%s\" \"%s\" > nul\r\nstart \"\" \"%s\"\r\ndel \"%%~f0\"\r\n",
-		newExePath, exePath, exePath)
-	if err := os.WriteFile(batPath, []byte(batContent), 0755); err != nil {
-		return fmt.Errorf("ошибка создания скрипта перезапуска: %w", err)
+	cleanArgs := cleanRestartArgs()
+
+	if runtime.GOOS == "windows" {
+		batPath := filepath.Join(exeDir, "shadowstar_updater.bat")
+		batContent := fmt.Sprintf(`@echo off
+setlocal enabledelayedexpansion
+
+set "OLD_PID=%%1"
+set "NEW_EXE=%%~2"
+set "TARGET_EXE=%%~3"
+shift
+shift
+shift
+
+set "APP_ARGS="
+:args_loop
+if "%%~1"=="" goto args_done
+set "APP_ARGS=!APP_ARGS! "%%~1""
+shift
+goto args_loop
+:args_done
+
+:: 1. Wait for current instance to completely terminate and release all port bindings
+if not "!OLD_PID!"=="" (
+    set /a WAIT_CNT=0
+    :wait_pid
+    tasklist /fi "PID eq !OLD_PID!" 2>nul | findstr /i "!OLD_PID!" >nul
+    if not errorlevel 1 (
+        set /a WAIT_CNT+=1
+        if !WAIT_CNT! leq 40 (
+            timeout /t 1 /nobreak >nul 2>nul || ping 127.0.0.1 -n 2 >nul
+            goto wait_pid
+        )
+    )
+)
+
+:: Extra brief settling delay
+ping 127.0.0.1 -n 2 >nul
+
+:: 2. Safely replace binary with retry loop (handles AV scanners / file indexing)
+set /a RETRY=0
+:replace_loop
+if exist "!NEW_EXE!" (
+    if exist "!TARGET_EXE!" (
+        del /f /q "!TARGET_EXE!.old" >nul 2>nul
+        move /y "!TARGET_EXE!" "!TARGET_EXE!.old" >nul 2>nul
+    )
+    move /y "!NEW_EXE!" "!TARGET_EXE!" >nul 2>nul
+    if errorlevel 1 (
+        set /a RETRY+=1
+        if !RETRY! leq 30 (
+            timeout /t 1 /nobreak >nul 2>nul || ping 127.0.0.1 -n 2 >nul
+            goto replace_loop
+        )
+    )
+)
+
+:: 3. Clean up backup
+del /f /q "!TARGET_EXE!.old" >nul 2>nul
+
+:: 4. Start updated application in an independent console window
+if exist "!TARGET_EXE!" (
+    start "" "!TARGET_EXE!" !APP_ARGS!
+)
+
+:: 5. Self-delete updater batch script
+del /f /q "%%~f0" >nul 2>nul
+`)
+		if err := os.WriteFile(batPath, []byte(batContent), 0755); err != nil {
+			return fmt.Errorf("ошибка создания скрипта перезапуска: %w", err)
+		}
+
+		cmdArgs := []string{"/c", batPath, fmt.Sprintf("%d", os.Getpid()), newExePath, exePath}
+		cmdArgs = append(cmdArgs, cleanArgs...)
+		cmd := exec.Command("cmd.exe", cmdArgs...)
+		cmd.Dir = exeDir
+		// Windows specific: launch in new console & detached so parent exit doesn't kill it
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			CreationFlags: 0x00000010 | 0x00000008, // CREATE_NEW_CONSOLE | DETACHED_PROCESS
+		}
+		if err := cmd.Start(); err != nil {
+			cmd.SysProcAttr = nil
+			_ = cmd.Start()
+		}
+
+		os.Exit(0)
+		return nil
 	}
 
-	cmd := exec.Command("cmd.exe", "/c", batPath)
+	// Unix (Linux / macOS) fallback
+	shPath := filepath.Join(exeDir, "shadowstar_updater.sh")
+	shContent := fmt.Sprintf(`#!/bin/sh
+OLD_PID="$1"
+NEW_EXE="$2"
+TARGET_EXE="$3"
+shift 3
+
+if [ -n "$OLD_PID" ]; then
+    while kill -0 "$OLD_PID" 2>/dev/null; do
+        sleep 0.3
+    done
+fi
+
+mv -f "$NEW_EXE" "$TARGET_EXE"
+chmod +x "$TARGET_EXE"
+exec "$TARGET_EXE" "$@" &
+rm -f "$0"
+`)
+	if err := os.WriteFile(shPath, []byte(shContent), 0755); err == nil {
+		cmdArgs := []string{shPath, fmt.Sprintf("%d", os.Getpid()), newExePath, exePath}
+		cmdArgs = append(cmdArgs, cleanArgs...)
+		cmd := exec.Command("sh", cmdArgs...)
+		cmd.Dir = exeDir
+		_ = cmd.Start()
+		os.Exit(0)
+		return nil
+	}
+
+	// Direct rename fallback
+	_ = os.Rename(newExePath, exePath)
+	cmd := exec.Command(exePath, cleanArgs...)
 	cmd.Dir = exeDir
 	_ = cmd.Start()
 	os.Exit(0)
 	return nil
+}
+
+func cleanRestartArgs() []string {
+	var clean []string
+	for _, arg := range os.Args[1:] {
+		if arg == "-update" || arg == "--update" {
+			continue
+		}
+		clean = append(clean, arg)
+	}
+	return clean
 }
 
 // CleanupOldFiles removes leftover .old or updater scripts from previous update
@@ -312,6 +430,8 @@ func CleanupOldFiles() {
 		_ = os.Remove(filepath.Join(exeDir, "shadowstar.exe.old"))
 		_ = os.Remove(filepath.Join(exeDir, "shadowstar.exe.new"))
 		_ = os.Remove(filepath.Join(exeDir, "shadowstar_update.bat"))
+		_ = os.Remove(filepath.Join(exeDir, "shadowstar_updater.bat"))
+		_ = os.Remove(filepath.Join(exeDir, "shadowstar_updater.sh"))
 	}
 }
 

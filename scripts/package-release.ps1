@@ -1,8 +1,10 @@
-# Package release v2.0.6 assets
+# Package release v2.0.7 assets
 $ErrorActionPreference = "Stop"
-Set-Location "D:\ocli\ShadowStar"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$BaseDir = Split-Path -Parent $ScriptDir
+Set-Location $BaseDir
 
-$RelDir = "D:\ocli\ShadowStar\bin\release-v2.0.6"
+$RelDir = "$BaseDir\bin\release-v2.0.7"
 if (-not (Test-Path $RelDir)) {
     New-Item -ItemType Directory -Path $RelDir -Force | Out-Null
 }
@@ -58,10 +60,13 @@ Compress-Archive -Path "$TempPkg\windows-amd64\*" -DestinationPath "$RelDir\shad
 
 # 6. APKs
 Write-Host "Copying APKs to release directory..."
-Copy-Item "bin\ShadowStar-v2.apk" "$RelDir\ShadowStar.apk" -Force
-Copy-Item "bin\ShadowStar-v2.apk" "$RelDir\ShadowStar-v2.apk" -Force
-if (Test-Path "bin\ShadowStar-v2-Personal.apk") {
-    Copy-Item "bin\ShadowStar-v2-Personal.apk" "$RelDir\ShadowStar-v2-Personal.apk" -Force
+$apkSource = if (Test-Path "bin\ShadowStar-v2.apk") { "bin" } elseif (Test-Path "D:\ocli\ShadowStar\bin\ShadowStar-v2.apk") { "D:\ocli\ShadowStar\bin" } else { $null }
+if ($apkSource) {
+    Copy-Item "$apkSource\ShadowStar-v2.apk" "$RelDir\ShadowStar.apk" -Force
+    Copy-Item "$apkSource\ShadowStar-v2.apk" "$RelDir\ShadowStar-v2.apk" -Force
+    if (Test-Path "$apkSource\ShadowStar-v2-Personal.apk") {
+        Copy-Item "$apkSource\ShadowStar-v2-Personal.apk" "$RelDir\ShadowStar-v2-Personal.apk" -Force
+    }
 }
 
 # Cleanup temp

@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"sync"
 )
 
 const (
+	TLSRecordApplicationData byte = 0x17
+
 	FrameOpen  byte = 0x01
 	FrameData  byte = 0x02
 	FrameClose byte = 0x03
@@ -73,10 +76,14 @@ func (s *SecureFrameConn) getNonce(baseSalt []byte, seq uint64) []byte {
 	return nonce
 }
 
-// WriteFrame encrypts and writes a frame with random dynamic morphing padding
+// WriteFrame encrypts and writes a frame with random dynamic morphing padding and TLS 1.3 record camouflage
 func (s *SecureFrameConn) WriteFrame(streamID uint32, frameType byte, payload []byte) error {
 	s.muWrite.Lock()
 	defer s.muWrite.Unlock()
+
+	if s.encNonce >= math.MaxUint64-4 {
+		return errors.New("secure frame conn: encryption nonce exhausted")
+	}
 
 	if len(payload) > MaxPayloadSize {
 		return errors.New("payload exceeds maximum size")
@@ -116,26 +123,55 @@ func (s *SecureFrameConn) WriteFrame(streamID uint32, frameType byte, payload []
 	s.encNonce++
 	bodyEnc := s.encCipher.Seal(nil, bodyNonce, bodyPlain, nil)
 
-	// Write length + body
-	if _, err := s.conn.Write(lenEnc); err != nil {
-		return err
-	}
-	if _, err := s.conn.Write(bodyEnc); err != nil {
+	// 3. Encapsulate inside TLS 1.3 Application Data record (0x17 0x03 0x03 [len])
+	tlsPayloadLen := len(lenEnc) + len(bodyEnc)
+	wireBuf := make([]byte, 5+tlsPayloadLen)
+	wireBuf[0] = TLSRecordApplicationData
+	wireBuf[1] = 0x03
+	wireBuf[2] = 0x03
+	binary.BigEndian.PutUint16(wireBuf[3:5], uint16(tlsPayloadLen))
+	copy(wireBuf[5:5+len(lenEnc)], lenEnc)
+	copy(wireBuf[5+len(lenEnc):], bodyEnc)
+
+	if _, err := s.conn.Write(wireBuf); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// ReadFrame reads and decrypts the next frame, stripping dynamic padding
+// ReadFrame reads and decrypts the next frame, stripping dynamic padding and TLS record encapsulation
 func (s *SecureFrameConn) ReadFrame() (streamID uint32, frameType byte, payload []byte, err error) {
 	s.muRead.Lock()
 	defer s.muRead.Unlock()
 
-	// 1. Read encrypted 2-byte length + 16-byte tag
-	headerBuf := make([]byte, 2+TagSize)
-	if _, err := io.ReadFull(s.conn, headerBuf); err != nil {
+	if s.decNonce >= math.MaxUint64-4 {
+		return 0, 0, nil, errors.New("secure frame conn: decryption nonce exhausted")
+	}
+
+	// 1. Read first byte to detect TLS 1.3 Application Data record vs bare frame
+	firstByte := make([]byte, 1)
+	if _, err := io.ReadFull(s.conn, firstByte); err != nil {
 		return 0, 0, nil, err
+	}
+
+	headerBuf := make([]byte, 2+TagSize)
+	if firstByte[0] == TLSRecordApplicationData {
+		// TLS 1.3 Record Header: read remaining 4 bytes (0x03 0x03 + 2 bytes record length)
+		tlsHdr := make([]byte, 4)
+		if _, err := io.ReadFull(s.conn, tlsHdr); err != nil {
+			return 0, 0, nil, err
+		}
+		// Read 2-byte encrypted body length + 16-byte tag
+		if _, err := io.ReadFull(s.conn, headerBuf); err != nil {
+			return 0, 0, nil, err
+		}
+	} else {
+		// Bare frame fallback (for backward compatibility)
+		headerBuf[0] = firstByte[0]
+		if _, err := io.ReadFull(s.conn, headerBuf[1:]); err != nil {
+			return 0, 0, nil, err
+		}
 	}
 
 	headerNonce := s.getNonce(s.decSalt, s.decNonce)

@@ -1,7 +1,9 @@
 $ErrorActionPreference = "Stop"
-Set-Location "D:\ocli\ShadowStar"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$BaseDir = Split-Path -Parent $ScriptDir
+Set-Location $BaseDir
 
-$RelDir = "D:\ocli\ShadowStar\bin\release-v2.0.6"
+$RelDir = "$BaseDir\bin\release-v2.0.7"
 if (-not (Test-Path $RelDir)) {
     New-Item -ItemType Directory -Path $RelDir -Force | Out-Null
 }

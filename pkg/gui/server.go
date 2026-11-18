@@ -96,6 +96,7 @@ func (g *GUIServer) Start() error {
 	mux.HandleFunc("/api/servers/export", g.handleExportServer)
 	mux.HandleFunc("/api/tun", g.handleTun)
 	mux.HandleFunc("/api/killswitch", g.handleKillSwitch)
+	mux.HandleFunc("/api/transport", g.handleTransport)
 	mux.HandleFunc("/api/logs", g.handleLogs)
 	mux.HandleFunc("/api/shutdown", g.handleShutdown)
 
@@ -263,6 +264,7 @@ type StatusResponse struct {
 	ActiveServerName string  `json:"active_server_name"`
 	ActiveServerAddr string  `json:"active_server_addr"`
 	ActiveServerSNI  string  `json:"active_server_sni"`
+	ActiveTransport  string  `json:"active_transport"`
 	SocksAddr        string  `json:"socks_addr"`
 	HttpAddr         string  `json:"http_addr"`
 	Version          string  `json:"version"`
@@ -288,12 +290,52 @@ func (g *GUIServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ActiveServerName: active.Name,
 		ActiveServerAddr: active.ServerAddr,
 		ActiveServerSNI:  active.SNI,
+		ActiveTransport:  g.client.GetTransport(),
 		SocksAddr:        g.cfg.SocksAddr,
 		HttpAddr:         g.cfg.HttpAddr,
 		Version:          "1.2.0-stealth",
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (g *GUIServer) handleTransport(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"transport": g.client.GetTransport(),
+		})
+		return
+	}
+	if r.Method == http.MethodPost {
+		var req struct {
+			Transport string `json:"transport"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		trans := strings.ToLower(strings.TrimSpace(req.Transport))
+		if trans != "tcp" && trans != "udp" && trans != "auto" {
+			http.Error(w, "Invalid transport (must be tcp, udp, or auto)", http.StatusBadRequest)
+			return
+		}
+		g.client.SetTransport(trans)
+		for i := range g.cfg.Servers {
+			if g.cfg.Servers[i].ID == g.cfg.ActiveID {
+				g.cfg.Servers[i].Transport = trans
+				break
+			}
+		}
+		_ = config.SaveClientConfig(g.configPath, g.cfg)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status":    "ok",
+			"transport": trans,
+		})
+		return
+	}
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
 func (g *GUIServer) handleConnect(w http.ResponseWriter, r *http.Request) {

@@ -130,7 +130,20 @@ func (kr *KeyReader) ReadKey() (KeyEvent, error) {
 		return KeyEvent{Type: KeyEsc}, nil
 	}
 
-	// Normal printable character
+	// Multi-byte UTF-8 character (e.g. Cyrillic / Russian, symbols)
+	if b >= 0x80 {
+		_ = kr.reader.UnreadByte()
+		r, _, err := kr.reader.ReadRune()
+		if err != nil {
+			return KeyEvent{Type: KeyNone}, err
+		}
+		return KeyEvent{
+			Type: KeyRune,
+			Rune: r,
+		}, nil
+	}
+
+	// Normal ASCII printable character
 	return KeyEvent{
 		Type: KeyRune,
 		Rune: rune(b),

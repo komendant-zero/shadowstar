@@ -14,6 +14,10 @@ var (
 	pGetConsoleMode              = kernel32.NewProc("GetConsoleMode")
 	pSetConsoleMode              = kernel32.NewProc("SetConsoleMode")
 	pGetConsoleScreenBufferInfo = kernel32.NewProc("GetConsoleScreenBufferInfo")
+	pGetConsoleCP               = kernel32.NewProc("GetConsoleCP")
+	pSetConsoleCP               = kernel32.NewProc("SetConsoleCP")
+	pGetConsoleOutputCP         = kernel32.NewProc("GetConsoleOutputCP")
+	pSetConsoleOutputCP         = kernel32.NewProc("SetConsoleOutputCP")
 )
 
 const (
@@ -59,6 +63,8 @@ type consoleScreenBufferInfo struct {
 var (
 	origInMode  uint32
 	origOutMode uint32
+	origInCP    uint32
+	origOutCP   uint32
 	hStdin      uintptr
 	hStdout     uintptr
 	initialized bool
@@ -73,6 +79,16 @@ func InitTerminal() error {
 
 	pGetConsoleMode.Call(hStdin, uintptr(unsafe.Pointer(&origInMode)))
 	pGetConsoleMode.Call(hStdout, uintptr(unsafe.Pointer(&origOutMode)))
+
+	// Save original code pages
+	inCP, _, _ := pGetConsoleCP.Call()
+	outCP, _, _ := pGetConsoleOutputCP.Call()
+	origInCP = uint32(inCP)
+	origOutCP = uint32(outCP)
+
+	// Set UTF-8 code page (65001) for correct Russian / Cyrillic input and output
+	pSetConsoleCP.Call(65001)
+	pSetConsoleOutputCP.Call(65001)
 
 	// Enable Virtual Terminal Processing for rich ANSI output & colors
 	outMode := origOutMode | ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING
@@ -102,6 +118,12 @@ func RestoreTerminal() {
 	}
 	if hStdin != 0 && origInMode != 0 {
 		pSetConsoleMode.Call(hStdin, uintptr(origInMode))
+	}
+	if origInCP != 0 {
+		pSetConsoleCP.Call(uintptr(origInCP))
+	}
+	if origOutCP != 0 {
+		pSetConsoleOutputCP.Call(uintptr(origOutCP))
 	}
 	initialized = false
 }

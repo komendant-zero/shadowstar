@@ -284,7 +284,8 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 		return false
 
 	case KeyRune:
-		switch key.Rune {
+		normRune := normalizeKeyRune(key.Rune)
+		switch normRune {
 		case 'q', 'Q':
 			return true
 
@@ -296,6 +297,9 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 
 		case 't', 'T':
 			t.toggleTUN()
+
+		case 'm', 'M':
+			t.cycleTransport()
 
 		case 'K':
 			t.toggleKillSwitch()
@@ -390,6 +394,141 @@ func (t *TUI) handleKey(key KeyEvent) bool {
 	return false
 }
 
+// normalizeKeyRune maps Russian keyboard layout characters (ЙЦУКЕН) to standard QWERTY shortcuts
+func normalizeKeyRune(r rune) rune {
+	switch r {
+	case 'й':
+		return 'q'
+	case 'Й':
+		return 'Q'
+	case 'ц':
+		return 'w'
+	case 'Ц':
+		return 'W'
+	case 'у':
+		return 'e'
+	case 'У':
+		return 'E'
+	case 'к':
+		return 'r'
+	case 'К':
+		return 'R'
+	case 'е', 'ё':
+		return 't'
+	case 'Е', 'Ё':
+		return 'T'
+	case 'н':
+		return 'y'
+	case 'Н':
+		return 'Y'
+	case 'г':
+		return 'u'
+	case 'Г':
+		return 'U'
+	case 'ш':
+		return 'i'
+	case 'Ш':
+		return 'I'
+	case 'щ':
+		return 'o'
+	case 'Щ':
+		return 'O'
+	case 'з':
+		return 'p'
+	case 'З':
+		return 'P'
+	case 'ф':
+		return 'a'
+	case 'Ф':
+		return 'A'
+	case 'ы':
+		return 's'
+	case 'Ы':
+		return 'S'
+	case 'в':
+		return 'd'
+	case 'В':
+		return 'D'
+	case 'а':
+		return 'f'
+	case 'А':
+		return 'F'
+	case 'п':
+		return 'g'
+	case 'П':
+		return 'G'
+	case 'р':
+		return 'h'
+	case 'Р':
+		return 'H'
+	case 'о':
+		return 'j'
+	case 'О':
+		return 'J'
+	case 'л':
+		return 'k'
+	case 'Л':
+		return 'K'
+	case 'д':
+		return 'l'
+	case 'Д':
+		return 'L'
+	case 'я':
+		return 'z'
+	case 'Я':
+		return 'Z'
+	case 'ч':
+		return 'x'
+	case 'Ч':
+		return 'X'
+	case 'с':
+		return 'c'
+	case 'С':
+		return 'C'
+	case 'м':
+		return 'v'
+	case 'М':
+		return 'V'
+	case 'и':
+		return 'b'
+	case 'И':
+		return 'B'
+	case 'т':
+		return 'n'
+	case 'Т':
+		return 'N'
+	case 'ь':
+		return 'm'
+	case 'Ь':
+		return 'M'
+	default:
+		return r
+	}
+}
+
+func (t *TUI) cycleTransport() {
+	cur := t.client.GetTransport()
+	var next string
+	switch strings.ToLower(cur) {
+	case "tcp":
+		next = "udp"
+	case "udp":
+		next = "auto"
+	default:
+		next = "tcp"
+	}
+	t.client.SetTransport(next)
+
+	for i := range t.cfg.Servers {
+		if t.cfg.Servers[i].ID == t.cfg.ActiveID {
+			t.cfg.Servers[i].Transport = next
+			break
+		}
+	}
+	_ = config.SaveClientConfig(t.cfgPath, t.cfg)
+	t.toast(fmt.Sprintf(i18n.T("✓ Транспорт: %s", "✓ Transport: %s"), strings.ToUpper(next)))
+}
+
 func (t *TUI) nextGroup() {
 	if len(t.cfg.Groups) <= 1 {
 		return
@@ -458,7 +597,9 @@ func (t *TUI) handleModalKey(key KeyEvent) bool {
 	}
 
 	if t.modal == ModalDeleteGroup {
-		if (key.Type == KeyRune && (key.Rune == 'y' || key.Rune == 'Y')) || key.Type == KeyEnter {
+		isYes := (key.Type == KeyRune && (key.Rune == 'y' || key.Rune == 'Y' || key.Rune == 'd' || key.Rune == 'D' || key.Rune == 'н' || key.Rune == 'Н' || key.Rune == 'д' || key.Rune == 'Д')) || key.Type == KeyEnter
+		isNo := key.Type == KeyRune && (key.Rune == 'n' || key.Rune == 'N' || key.Rune == 'т' || key.Rune == 'Т')
+		if isYes {
 			grp := t.cfg.GetActiveGroup()
 			if grp != nil {
 				delName := grp.Name
@@ -469,7 +610,7 @@ func (t *TUI) handleModalKey(key KeyEvent) bool {
 				t.toast(fmt.Sprintf(i18n.T("✓ Категория «%s» удалена", "✓ Category «%s» deleted"), delName))
 			}
 			t.modal = ModalNone
-		} else if key.Type == KeyRune && (key.Rune == 'n' || key.Rune == 'N') {
+		} else if isNo {
 			t.modal = ModalNone
 		}
 		return false
@@ -478,8 +619,9 @@ func (t *TUI) handleModalKey(key KeyEvent) bool {
 	if t.modal == ModalAddGroup {
 		switch key.Type {
 		case KeyBackspace:
-			if len(t.modalInput) > 0 {
-				t.modalInput = t.modalInput[:len(t.modalInput)-1]
+			runes := []rune(t.modalInput)
+			if len(runes) > 0 {
+				t.modalInput = string(runes[:len(runes)-1])
 			}
 		case KeyEnter:
 			if t.modalStep == 0 {
@@ -517,8 +659,9 @@ func (t *TUI) handleModalKey(key KeyEvent) bool {
 	if t.modal == ModalEditGroup {
 		switch key.Type {
 		case KeyBackspace:
-			if len(t.modalInput) > 0 {
-				t.modalInput = t.modalInput[:len(t.modalInput)-1]
+			runes := []rune(t.modalInput)
+			if len(runes) > 0 {
+				t.modalInput = string(runes[:len(runes)-1])
 			}
 		case KeyEnter:
 			if t.modalStep == 0 {
@@ -560,7 +703,9 @@ func (t *TUI) handleModalKey(key KeyEvent) bool {
 	}
 
 	if t.modal == ModalConfirmDelete {
-		if key.Type == KeyRune && (key.Rune == 'y' || key.Rune == 'Y') || key.Type == KeyEnter {
+		isYes := (key.Type == KeyRune && (key.Rune == 'y' || key.Rune == 'Y' || key.Rune == 'd' || key.Rune == 'D' || key.Rune == 'н' || key.Rune == 'Н' || key.Rune == 'д' || key.Rune == 'Д')) || key.Type == KeyEnter
+		isNo := key.Type == KeyRune && (key.Rune == 'n' || key.Rune == 'N' || key.Rune == 'т' || key.Rune == 'Т')
+		if isYes {
 			servers := t.cfg.GetServersInGroup(t.cfg.ActiveGroupID)
 			if len(servers) > 0 && t.selectedIdx >= 0 && t.selectedIdx < len(servers) {
 				deleted := servers[t.selectedIdx]
@@ -583,7 +728,7 @@ func (t *TUI) handleModalKey(key KeyEvent) bool {
 				t.toast(fmt.Sprintf(i18n.T("✓ Узел удален: %s", "✓ Node deleted: %s"), deleted.Name))
 			}
 			t.modal = ModalNone
-		} else if key.Type == KeyRune && (key.Rune == 'n' || key.Rune == 'N') {
+		} else if isNo {
 			t.modal = ModalNone
 		}
 		return false
@@ -592,8 +737,9 @@ func (t *TUI) handleModalKey(key KeyEvent) bool {
 	// Text input modals: ModalAddNode / ModalSubURL
 	switch key.Type {
 	case KeyBackspace:
-		if len(t.modalInput) > 0 {
-			t.modalInput = t.modalInput[:len(t.modalInput)-1]
+		runes := []rune(t.modalInput)
+		if len(runes) > 0 {
+			t.modalInput = string(runes[:len(runes)-1])
 		}
 	case KeyEnter:
 		if t.modal == ModalAddNode {
@@ -888,6 +1034,8 @@ func (t *TUI) startUpdateDownload(rel *updater.ReleaseInfo) {
 			t.updateProgress = pct
 			t.updateStatus = status
 			t.mu.Unlock()
+		}, func() {
+			t.cleanupBeforeRestart()
 		})
 
 		t.mu.Lock()
@@ -899,6 +1047,15 @@ func (t *TUI) startUpdateDownload(rel *updater.ReleaseInfo) {
 		}
 		t.mu.Unlock()
 	}()
+}
+
+func (t *TUI) cleanupBeforeRestart() {
+	if t.tunMgr != nil && t.tunMgr.IsRunning() {
+		_ = t.tunMgr.Stop()
+	}
+	_ = tun.GetKillSwitch().Disable()
+	_ = t.client.Stop()
+	RestoreTerminal()
 }
 
 func (t *TUI) toast(msg string) {

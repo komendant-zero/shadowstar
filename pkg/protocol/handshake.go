@@ -47,7 +47,7 @@ const (
 	Kyber768HybridShareLen = 1216 // 1184 + 32
 
 	AuthTagLen = 16
-	AuthWindow = 900 // seconds validity window for handshake replay defense (15 minutes)
+	AuthWindow = 120 // seconds validity window for handshake replay defense (2 minutes)
 )
 
 var greaseValues = [...]uint16{
@@ -256,23 +256,15 @@ func BuildClientHello(sni string, masterKey []byte, clientPub []byte, paddingLen
 	// 11. Signed Certificate Timestamps (SCT - RFC 6962)
 	writeExtension(&extensions, ExtSCT, nil)
 
-	// 12. Key Share (GREASE share + X25519Kyber768 hybrid share + classic X25519 share)
-	// Share 1: GREASE (group: RandomGREASE(), len: 1, data: 0x00) -> 2 + 2 + 1 = 5 bytes
-	// Share 2: Post-Quantum Hybrid (group: GroupX25519Kyber768, len: 1216, data: 1184B Kyber + 32B X25519) -> 2 + 2 + 1216 = 1220 bytes
-	// Share 3: Classic X25519 (group: GroupX25519, len: 32, data: clientPub) -> 2 + 2 + 32 = 36 bytes
-	totalSharesLen := 5 + 1220 + 36
+	// 12. Key Share (Realistic Chrome JA3/JA4 list: X25519Kyber768 hybrid share + classic X25519 share)
+	// Share 1: Post-Quantum Hybrid (group: GroupX25519Kyber768, len: 1216, data: 1184B Kyber + 32B X25519) -> 2 + 2 + 1216 = 1220 bytes
+	// Share 2: Classic X25519 (group: GroupX25519, len: 32, data: clientPub) -> 2 + 2 + 32 = 36 bytes
+	totalSharesLen := 1220 + 36
 	keyShareData := make([]byte, 2+totalSharesLen)
 	binary.BigEndian.PutUint16(keyShareData[0:2], uint16(totalSharesLen))
 	off := 2
 
-	// Share 1: GREASE
-	greaseShareGroup := RandomGREASE()
-	binary.BigEndian.PutUint16(keyShareData[off:off+2], greaseShareGroup)
-	binary.BigEndian.PutUint16(keyShareData[off+2:off+4], 1)
-	keyShareData[off+4] = 0x00
-	off += 5
-
-	// Share 2: Kyber768 Hybrid
+	// Share 1: Kyber768 Hybrid
 	binary.BigEndian.PutUint16(keyShareData[off:off+2], GroupX25519Kyber768)
 	binary.BigEndian.PutUint16(keyShareData[off+2:off+4], Kyber768HybridShareLen)
 	off += 4
@@ -281,7 +273,7 @@ func BuildClientHello(sni string, masterKey []byte, clientPub []byte, paddingLen
 	copy(keyShareData[off+Kyber768PubKeyLen:off+Kyber768HybridShareLen], clientPub)
 	off += Kyber768HybridShareLen
 
-	// Share 3: Classic X25519
+	// Share 2: Classic X25519
 	binary.BigEndian.PutUint16(keyShareData[off:off+2], GroupX25519)
 	binary.BigEndian.PutUint16(keyShareData[off+2:off+4], uint16(len(clientPub)))
 	off += 4
@@ -381,6 +373,7 @@ func BuildClientHello(sni string, masterKey []byte, clientPub []byte, paddingLen
 }
 
 // BuildServerHello constructs a standard TLS 1.3 ServerHello packet carrying server's X25519 public key
+// along with the RFC 8446 Appendix D.4 Middlebox Compatibility ChangeCipherSpec record.
 func BuildServerHello(serverPub []byte, sessionID []byte) []byte {
 	var body bytes.Buffer
 	// Server Version 0x0303
@@ -419,6 +412,9 @@ func BuildServerHello(serverPub []byte, sessionID []byte) []byte {
 	record.WriteByte(0x00)
 	binary.Write(&record, binary.BigEndian, uint16(len(serverHelloBytes)))
 	record.Write(serverHelloBytes)
+
+	// Append standard RFC 8446 Appendix D.4 Middlebox Compatibility ChangeCipherSpec record (0x14 0x03 0x03 0x00 0x01 0x01)
+	record.Write([]byte{0x14, 0x03, 0x03, 0x00, 0x01, 0x01})
 
 	return record.Bytes()
 }
@@ -630,6 +626,9 @@ func PerformClientHandshake(conn net.Conn, masterKey []byte, sni string, enableC
 
 	// If TCP Chunker is enabled, fragment ClientHello to evade DPI SNI inspection
 	if enableChunker && len(clientHello) > 32 {
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			_ = tcpConn.SetNoDelay(true)
+		}
 		chunk1 := clientHello[:24]
 		chunk2 := clientHello[24:]
 		if _, err := conn.Write(chunk1); err != nil {
@@ -663,9 +662,22 @@ func PerformClientHandshake(conn net.Conn, masterKey []byte, sni string, enableC
 	}
 	_ = conn.SetReadDeadline(time.Time{})
 
-	serverPub, err := ParseServerHello(buf[:n])
+	serverPub, err := ParseServerHello(buf[:5+recordLen])
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid ServerHello: %w", err)
+	}
+
+	// Consume RFC 8446 Appendix D.4 Middlebox Compatibility ChangeCipherSpec if received
+	rem := buf[5+recordLen : n]
+	if len(rem) > 0 && rem[0] == 0x14 {
+		for len(rem) < 6 {
+			var b [6]byte
+			k, rErr := conn.Read(b[:6-len(rem)])
+			if rErr != nil {
+				break
+			}
+			rem = append(rem, b[:k]...)
+		}
 	}
 
 	return clientPriv, serverPub, nil

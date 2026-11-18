@@ -73,6 +73,72 @@ func TestKeyReader(t *testing.T) {
 	}
 }
 
+func TestKeyReader_RussianUTF8(t *testing.T) {
+	// Simulate Russian characters in UTF-8
+	// 'с' (0xD1 0x81), 'й' (0xD0 0xB9), 'П' (0xD0 0x9F), 'ь' (0xD1 0x8C)
+	inputData := []byte("сйПь")
+	kr := NewKeyReader(bytes.NewReader(inputData))
+
+	expected := []rune{'с', 'й', 'П', 'ь'}
+	for i, exp := range expected {
+		ke, err := kr.ReadKey()
+		if err != nil {
+			t.Fatalf("failed reading rune %d: %v", i, err)
+		}
+		if ke.Type != KeyRune || ke.Rune != exp {
+			t.Errorf("at index %d: expected rune %c (%U), got %c (%U)", i, exp, exp, ke.Rune, ke.Rune)
+		}
+	}
+}
+
+func TestNormalizeKeyRune(t *testing.T) {
+	cases := []struct {
+		input    rune
+		expected rune
+	}{
+		{'с', 'c'},
+		{'С', 'C'},
+		{'й', 'q'},
+		{'Й', 'Q'},
+		{'ы', 's'},
+		{'Ы', 'S'},
+		{'е', 't'},
+		{'Е', 'T'},
+		{'ь', 'm'},
+		{'Ь', 'M'},
+		{'л', 'k'},
+		{'Л', 'K'},
+		{'о', 'j'},
+		{'О', 'J'},
+		{'р', 'h'},
+		{'д', 'l'},
+		{'з', 'p'},
+		{'а', 'f'},
+		{'ф', 'a'},
+		{'т', 'n'},
+		{'у', 'e'},
+		{'ч', 'x'},
+		{'г', 'u'},
+		{'в', 'd'},
+		{'к', 'r'},
+		{'м', 'v'},
+		// Non-Russian or already Latin
+		{'c', 'c'},
+		{'C', 'C'},
+		{'q', 'q'},
+		{'m', 'm'},
+		{'1', '1'},
+		{' ', ' '},
+	}
+
+	for _, c := range cases {
+		got := normalizeKeyRune(c.input)
+		if got != c.expected {
+			t.Errorf("normalizeKeyRune(%c) = %c; expected %c", c.input, got, c.expected)
+		}
+	}
+}
+
 func TestRenderFrameSmoke(t *testing.T) {
 	cfg := &client.Config{
 		SocksAddr: "127.0.0.1:10808",

@@ -1,6 +1,6 @@
 # ⭐ ShadowStar (SSP) • Next-Gen Anti-DPI Stealth Proxy
 
-[![GitHub Release](https://img.shields.io/badge/release-v1.4.0-blue.svg)](https://github.com/komendant-zero/shadowstar/releases)
+[![GitHub Release](https://img.shields.io/badge/release-v2.0.7-blue.svg)](https://github.com/komendant-zero/shadowstar/releases)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8.svg)](https://golang.org)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-green.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -62,17 +62,20 @@ Written in pure Go with zero external dependencies (ANSI VT100 / Raw Console).
 - **Run**: `shadowstar -c shadowstar-client.json` (or `./run-personal-pc.bat`)
 - **Keybindings**:
   - `[C]` / `[Space]` — Connect / Disconnect tunnel
+  - `[M]` — Cycle transport mode (`TCP` → `UDP` → `AUTO`)
   - `[↑]` / `[↓]` (or `[k]` / `[j]`) — Navigate server nodes
   - `[Enter]` — Select & switch active node
   - `[F]` — Auto-select and connect to the fastest server (lowest ping)
   - `[P]` — Ping all servers concurrently
   - `[S]` — Toggle System Proxy (WinINet on Windows)
+  - `[T]` — Toggle native L3 TUN mode
   - `[A]` — Add node modal (`shadowstar://` URI or `ip:port:key`)
   - `[D]` — Delete node modal
   - `[U]` — Update from subscription URL
   - `[Tab]` / `[R]` — Instant bilingual switch (`RU` | `EN`)
   - `[1]`, `[2]`, `[3]` — Switch views: Servers, Live Tunnel Logs, Protocol Diagnostics
   - `[Q]` / `[Esc]` — Clean exit with graceful proxy restoration
+  - *(Full Russian keyboard layout support: all hotkeys work seamlessly in Russian layout)*
 
 ### 📱 Mobile Client (Android APK & PWA)
 - **Direct Android APK**: Download the signed APK directly from [GitHub Releases](https://github.com/komendant-zero/shadowstar/releases) (`ShadowStar.apk`), install on your Android phone, and tap Connect!
@@ -119,17 +122,20 @@ The installer configures:
 - **Запуск**: запустите `shadowstar.exe` (или `run-personal-pc.bat`). На Linux/macOS запускается командой `./shadowstar`.
 - **Горячие клавиши**:
   - `[C]` / `[Пробел]` — Подключение / Отключение туннеля
+  - `[M]` — Переключение транспорта трафика (`TCP` → `UDP` → `AUTO`)
   - `[↑]` / `[↓]` (или `[k]` / `[j]`) — Навигация по списку серверов
   - `[Enter]` — Переключение и активация выбранного узла
   - `[F]` — Авто-выбор самого быстрого сервера с минимальным пингом
   - `[P]` — Одновременный пинг всех узлов
   - `[S]` — Переключение системного прокси (WinINet)
+  - `[T]` — Переключение режима L3 TUN
   - `[A]` — Модальное окно добавления узла (`shadowstar://` или `ip:port:key`)
   - `[D]` — Удаление выбранного узла
   - `[U]` — Обновление серверов по ссылке подписки
   - `[Tab]` / `[R]` — Мгновенное переключение языка (`RU` | `EN`)
   - `[1]`, `[2]`, `[3]` — Переключение вкладок (Узлы / Живые логи / Диагностика криптостека)
   - `[Q]` / `[Esc]` — Безопасный выход с корректной очисткой прокси и терминала
+  - *(Полная поддержка русской раскладки клавиатуры: все горячие клавиши работают при любой активной раскладке)*
 
 ---
 

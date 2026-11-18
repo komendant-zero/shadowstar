@@ -137,6 +137,7 @@ func TestSecureFrameConn_TLS13RecordCamouflage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("conn1 create failed: %v", err)
 	}
+	conn1.EncapsulateTLS = true
 
 	testPayload := []byte("Testing TLS 1.3 Application Data camouflage!")
 	if err := conn1.WriteFrame(1, FrameData, testPayload); err != nil {

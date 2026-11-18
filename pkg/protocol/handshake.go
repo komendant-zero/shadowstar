@@ -47,7 +47,7 @@ const (
 	Kyber768HybridShareLen = 1216 // 1184 + 32
 
 	AuthTagLen = 16
-	AuthWindow = 120 // seconds validity window for handshake replay defense (2 minutes)
+	AuthWindow = 900 // seconds validity window for handshake replay defense (15 minutes)
 )
 
 var greaseValues = [...]uint16{

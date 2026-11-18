@@ -36,16 +36,17 @@ type Frame struct {
 
 // SecureFrameConn wraps a net.Conn with AEAD frame encryption, padding, and replay defense
 type SecureFrameConn struct {
-	conn      io.ReadWriter
-	encCipher cipher.AEAD
-	decCipher cipher.AEAD
-	encNonce  uint64
-	decNonce  uint64
-	encSalt   []byte
-	decSalt   []byte
-	muWrite   sync.Mutex
-	muRead    sync.Mutex
-	closed    bool
+	conn           io.ReadWriter
+	encCipher      cipher.AEAD
+	decCipher      cipher.AEAD
+	encNonce       uint64
+	decNonce       uint64
+	encSalt        []byte
+	decSalt        []byte
+	EncapsulateTLS bool
+	muWrite        sync.Mutex
+	muRead         sync.Mutex
+	closed         bool
 }
 
 // NewSecureFrameConn creates a new secure bidirectional frame connection
@@ -123,17 +124,28 @@ func (s *SecureFrameConn) WriteFrame(streamID uint32, frameType byte, payload []
 	s.encNonce++
 	bodyEnc := s.encCipher.Seal(nil, bodyNonce, bodyPlain, nil)
 
-	// 3. Encapsulate inside TLS 1.3 Application Data record (0x17 0x03 0x03 [len])
-	tlsPayloadLen := len(lenEnc) + len(bodyEnc)
-	wireBuf := make([]byte, 5+tlsPayloadLen)
-	wireBuf[0] = TLSRecordApplicationData
-	wireBuf[1] = 0x03
-	wireBuf[2] = 0x03
-	binary.BigEndian.PutUint16(wireBuf[3:5], uint16(tlsPayloadLen))
-	copy(wireBuf[5:5+len(lenEnc)], lenEnc)
-	copy(wireBuf[5+len(lenEnc):], bodyEnc)
+	if s.EncapsulateTLS {
+		// Encapsulate inside TLS 1.3 Application Data record (0x17 0x03 0x03 [len])
+		tlsPayloadLen := len(lenEnc) + len(bodyEnc)
+		wireBuf := make([]byte, 5+tlsPayloadLen)
+		wireBuf[0] = TLSRecordApplicationData
+		wireBuf[1] = 0x03
+		wireBuf[2] = 0x03
+		binary.BigEndian.PutUint16(wireBuf[3:5], uint16(tlsPayloadLen))
+		copy(wireBuf[5:5+len(lenEnc)], lenEnc)
+		copy(wireBuf[5+len(lenEnc):], bodyEnc)
 
-	if _, err := s.conn.Write(wireBuf); err != nil {
+		if _, err := s.conn.Write(wireBuf); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Standard wire framing (fully backward-compatible with v2.0.0 through v2.0.6 servers)
+	if _, err := s.conn.Write(lenEnc); err != nil {
+		return err
+	}
+	if _, err := s.conn.Write(bodyEnc); err != nil {
 		return err
 	}
 

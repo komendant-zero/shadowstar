@@ -127,13 +127,25 @@ func (t *TUI) renderDashboard(w int) string {
 		countryStr = fmt.Sprintf("[%s] ", active.Country)
 	}
 
+	transMode := strings.ToUpper(t.client.GetTransport())
+	if transMode == "" {
+		transMode = "TCP"
+	}
+	transColor := BrightCyan
+	if transMode == "UDP" {
+		transColor = BrightYellow
+	} else if transMode == "AUTO" {
+		transColor = BrightGreen
+	}
+	transBadge := transColor(Bold("[" + transMode + "]"))
+
 	l1Left := fmt.Sprintf(" %s %s%s (%s)",
 		Yellow("● "+i18n.T("Активный узел:", "Active Node:")),
 		BrightCyan(Bold(countryStr+active.Name)),
 		Gray(""),
 		Cyan(active.ServerAddr),
 	)
-	l1Right := fmt.Sprintf("%s: %s ", i18n.T("Задержка", "Latency"), latencyStr)
+	l1Right := fmt.Sprintf("%s: %s | %s: %s ", Cyan(i18n.T("Транспорт", "Transport")), transBadge, i18n.T("Задержка", "Latency"), latencyStr)
 	sb.WriteString(t.formatLine(l1Left, l1Right, w))
 	sb.WriteString("\n")
 
@@ -158,23 +170,9 @@ func (t *TUI) renderDashboard(w int) string {
 		ksStr = BrightYellow("[ON]")
 	}
 
-	transMode := strings.ToUpper(t.client.GetTransport())
-	if transMode == "" {
-		transMode = "TCP"
-	}
-	transColor := BrightCyan
-	if transMode == "UDP" {
-		transColor = BrightYellow
-	} else if transMode == "AUTO" {
-		transColor = BrightGreen
-	}
-	transBadge := transColor(Bold("[" + transMode + "]"))
-
-	l2Left := fmt.Sprintf(" %s Reality (%s) | %s: %s | Chunker: %s",
+	l2Left := fmt.Sprintf(" %s Reality (%s) | Chunker: %s",
 		Magenta("◆ "+i18n.T("Защита:", "Shield:")),
 		BrightCyan(active.SNI),
-		Cyan(i18n.T("Транспорт", "Transport")),
-		transBadge,
 		chunkerStr,
 	)
 	l2Right := fmt.Sprintf("TUN: %s | KS: %s | %s: %s ", tunStr, ksStr, i18n.T("Прокси", "Proxy"), sysProxyStr)
@@ -604,7 +602,11 @@ func (t *TUI) formatLine(left, right string, w int) string {
 	if maxLeft < 0 {
 		return "│" + FitLine(right, w) + "│"
 	}
-	left = FitLine(left, maxLeft)
+	if maxLeft > 1 && VisibleLen(left) >= maxLeft {
+		left = FitLine(left, maxLeft-1) + " "
+	} else {
+		left = FitLine(left, maxLeft)
+	}
 	return "│" + left + right + "│"
 }
 

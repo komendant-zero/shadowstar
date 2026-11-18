@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -360,9 +359,7 @@ del /f /q "%%~f0" >nul 2>nul
 		cmd := exec.Command("cmd.exe", cmdArgs...)
 		cmd.Dir = exeDir
 		// Windows specific: launch in new console & detached so parent exit doesn't kill it
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			CreationFlags: 0x00000010 | 0x00000008, // CREATE_NEW_CONSOLE | DETACHED_PROCESS
-		}
+		detachProcess(cmd)
 		if err := cmd.Start(); err != nil {
 			cmd.SysProcAttr = nil
 			_ = cmd.Start()

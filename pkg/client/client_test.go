@@ -59,17 +59,20 @@ func TestSNIPoolManager_RoundRobinAndQuarantine(t *testing.T) {
 	pool := []string{"domain-a.com", "domain-b.com", "domain-c.com"}
 	mgr := NewSNIPoolManager(pool, "domain-a.com")
 
-	// Round-robin selection: A -> B -> C -> A
+	// Sticky selection: consecutive calls stay on domain-a.com without cycling
 	first := mgr.SelectSNI()
 	second := mgr.SelectSNI()
-	third := mgr.SelectSNI()
-	fourth := mgr.SelectSNI()
-
-	if first != "domain-a.com" || second != "domain-b.com" || third != "domain-c.com" || fourth != "domain-a.com" {
-		t.Fatalf("Unexpected round-robin sequence: [%s, %s, %s, %s]", first, second, third, fourth)
+	if first != "domain-a.com" || second != "domain-a.com" {
+		t.Fatalf("Expected sticky selection of domain-a.com, got [%s, %s]", first, second)
 	}
 
-	// Report TCP RST error on domain-b.com -> immediate quarantine
+	// Explicit rotation with NextSNI
+	next := mgr.NextSNI()
+	if next != "domain-b.com" {
+		t.Fatalf("Expected NextSNI to advance to domain-b.com, got %s", next)
+	}
+
+	// Report TCP RST error on domain-b.com -> immediate quarantine and cursor moves away
 	mgr.ReportFailure("domain-b.com", errors.New("read: connection reset by peer"))
 	if !mgr.IsQuarantined("domain-b.com") {
 		t.Fatalf("domain-b.com should be quarantined after TCP RST error")
@@ -79,17 +82,48 @@ func TestSNIPoolManager_RoundRobinAndQuarantine(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		sni := mgr.SelectSNI()
 		if sni == "domain-b.com" {
-			t.Fatalf("Quarantined domain-b.com was selected during rotation!")
+			t.Fatalf("Quarantined domain-b.com was selected!")
 		}
 		if sni != "domain-a.com" && sni != "domain-c.com" {
 			t.Fatalf("Unexpected SNI selected: %s", sni)
 		}
 	}
 
-	// Report success -> lifts quarantine
+	// Report success -> lifts quarantine and locks in the successful SNI
 	mgr.ReportSuccess("domain-b.com")
 	if mgr.IsQuarantined("domain-b.com") {
 		t.Fatalf("domain-b.com still quarantined after ReportSuccess")
+	}
+	if mgr.SelectSNI() != "domain-b.com" {
+		t.Fatalf("Expected domain-b.com to be locked in after ReportSuccess")
+	}
+}
+
+func TestSNIPoolManager_StickyAcrossConnections(t *testing.T) {
+	pool := []string{"www.microsoft.com", "azure.microsoft.com", "login.microsoftonline.com"}
+	mgr := NewSNIPoolManager(pool, "www.microsoft.com")
+
+	// 100 consecutive connection attempts should all use www.microsoft.com without changing
+	for i := 0; i < 100; i++ {
+		sni := mgr.SelectSNI()
+		if sni != "www.microsoft.com" {
+			t.Fatalf("Iteration %d: SNI changed to %s, expected www.microsoft.com to remain stable", i, sni)
+		}
+		// Connection succeeded
+		mgr.ReportSuccess(sni)
+	}
+
+	// Now simulate failure of www.microsoft.com (e.g. 2 consecutive generic errors)
+	mgr.ReportFailure("www.microsoft.com", errors.New("auth error"))
+	mgr.ReportFailure("www.microsoft.com", errors.New("auth error"))
+
+	// Should now switch to azure.microsoft.com and stick to it
+	for i := 0; i < 50; i++ {
+		sni := mgr.SelectSNI()
+		if sni != "azure.microsoft.com" {
+			t.Fatalf("Iteration %d: expected failover to azure.microsoft.com, got %s", i, sni)
+		}
+		mgr.ReportSuccess(sni)
 	}
 }
 

@@ -3,7 +3,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BaseDir = Split-Path -Parent $ScriptDir
 Set-Location $BaseDir
 
-$RelDir = "$BaseDir\bin\release-v2.0.7"
+$RelDir = "$BaseDir\bin\release-v2.1.0"
 if (-not (Test-Path $RelDir)) {
     New-Item -ItemType Directory -Path $RelDir -Force | Out-Null
 }

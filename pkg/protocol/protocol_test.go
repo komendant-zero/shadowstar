@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"net"
 	"testing"
 )
@@ -167,6 +168,7 @@ func TestSecureFrameConn_TLS13RecordCamouflage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("conn2 create failed: %v", err)
 	}
+	conn2.EncapsulateTLS = true
 
 	sID, fType, decPayload, err := conn2.ReadFrame()
 	if err != nil {
@@ -174,6 +176,58 @@ func TestSecureFrameConn_TLS13RecordCamouflage(t *testing.T) {
 	}
 	if sID != 1 || fType != FrameData || !bytes.Equal(decPayload, testPayload) {
 		t.Fatalf("ReadFrame data mismatch: got stream %d, type %d, payload %s", sID, fType, string(decPayload))
+	}
+}
+
+func TestSecureFrameConn_ManyFrames_NoDesync(t *testing.T) {
+	pipeA, pipeB := net.Pipe()
+	defer pipeA.Close()
+	defer pipeB.Close()
+
+	keyA := RandomBytes(32)
+	ivA := RandomBytes(12)
+	keyB := RandomBytes(32)
+	ivB := RandomBytes(12)
+
+	conn1, err := NewSecureFrameConn(pipeA, keyA, ivA, keyB, ivB)
+	if err != nil {
+		t.Fatalf("conn1 create failed: %v", err)
+	}
+	conn2, err := NewSecureFrameConn(pipeB, keyB, ivB, keyA, ivA)
+	if err != nil {
+		t.Fatalf("conn2 create failed: %v", err)
+	}
+
+	const totalFrames = 1000
+	errChan := make(chan error, 1)
+
+	go func() {
+		for i := 0; i < totalFrames; i++ {
+			data := []byte(fmt.Sprintf("frame-%d-content-test-data", i))
+			if err := conn1.WriteFrame(uint32(i+1), FrameData, data); err != nil {
+				errChan <- err
+				return
+			}
+		}
+		errChan <- nil
+	}()
+
+	for i := 0; i < totalFrames; i++ {
+		streamID, fType, payload, err := conn2.ReadFrame()
+		if err != nil {
+			t.Fatalf("ReadFrame on frame %d failed: %v", i, err)
+		}
+		if streamID != uint32(i+1) || fType != FrameData {
+			t.Fatalf("frame %d metadata mismatch: streamID=%d, fType=%d", i, streamID, fType)
+		}
+		expectedData := []byte(fmt.Sprintf("frame-%d-content-test-data", i))
+		if !bytes.Equal(payload, expectedData) {
+			t.Fatalf("frame %d payload mismatch", i)
+		}
+	}
+
+	if wErr := <-errChan; wErr != nil {
+		t.Fatalf("WriteFrame failed: %v", wErr)
 	}
 }
 

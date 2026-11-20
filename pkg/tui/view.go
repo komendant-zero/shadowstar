@@ -77,7 +77,7 @@ func (t *TUI) renderHeader(w int) string {
 	sb.WriteString("┌" + strings.Repeat("─", w) + "┐\n")
 
 	// Title + Status Badge + Lang Badge
-	title := BrightCyan(Bold("◈ SHADOWSTAR (SSP)")) + Dim(" • Anti-DPI Stealth Proxy v2.0.7")
+	title := BrightCyan(Bold("◈ SHADOWSTAR (SSP)")) + Dim(" • Anti-DPI Stealth Proxy v2.1.0")
 	
 	statusBadge := ""
 	if t.stats.Connected {
